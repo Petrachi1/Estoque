@@ -1,9 +1,29 @@
 services:
   - type: web
-    name: consulta-produtos
+    name: consulta-produtos-backend
     env: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    autoDeploy: true
-    healthCheckPath: /health
+    rootDirectory: backend
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    plan: free
+    envVars:
+      - key: DROPBOX_APP_KEY
+        sync: false
+      - key: DROPBOX_APP_SECRET
+        sync: false
+      - key: DROPBOX_REFRESH_TOKEN
+        sync: false
+      - key: DROPBOX_FILE_PATH
+        sync: false
+      - key: EXCEL_SHEET
+        sync: false
+      - key: EXCEL_HEADER_ROW
+        sync: false
+      - key: CATALOGO_PATH
+        value: ../catalogo.xlsx
+      - key: FUZZY_THRESHOLD
+        value: "0.94"
+      - key: MAX_LEN_DIFF
+        value: "2"
+      - key: REQUIRE_SAME_INITIAL
+        value: "1"
