@@ -10,13 +10,10 @@
     <title>Petrachi — Estoque & Agrofit</title>
 
     <!-- PWA (via /static) -->
-    <link rel="manifest" href="/static/manifest.json" />
-    <link rel="icon" href="/static/icon-192.png" />
-    <link
-      rel="apple-touch-icon"
-      sizes="180x180"
-      href="/static/apple-touch-icon.png"
-    />
+  <link rel="manifest" href="/static/manifest.json">
+  <script src="/static/service-worker.js"></script>
+  <link rel="icon" href="/static/icon-192.png">
+
 
     <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -701,5 +698,6 @@ const END_Catalogo = `${BASE_URL}/api/catalogo`;
     </script>
   </body>
 </html>
+
 
 
