@@ -1,0 +1,16 @@
+@media (orientation: portrait) {
+  #rotateHint {
+    display: flex;
+  }
+  #app {
+    display: none;
+  }
+}
+@media (orientation: landscape) {
+  #rotateHint {
+    display: none;
+  }
+  #app {
+    display: block;
+  }
+}

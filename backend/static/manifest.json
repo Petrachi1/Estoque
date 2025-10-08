@@ -1,0 +1,16 @@
+{
+  "name": "Petrachi — Estoque & Agrofit",
+  "short_name": "Estoque",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#047857",
+  "background_color": "#F4F6F8",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    {
+      "src": "/static/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

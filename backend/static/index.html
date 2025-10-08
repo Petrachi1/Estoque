@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#047857" />
+    <title>Petrachi — Estoque & Agrofit</title>
+
+    <!-- PWA (via /static) -->
+    <link rel="manifest" href="/static/manifest.json" />
+    <link rel="icon" href="/static/icon-192.png" />
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/static/apple-touch-icon.png"
+    />
+
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- SheetJS (ler .xlsx local, se precisar) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+    <style>
+      input,
+      button {
+        touch-action: manipulation;
+      }
+      .container {
+        max-width: 720px;
+      }
+    </style>
+  </head>
+  <body class="bg-[#F4F6F8] text-gray-800">
+    <div id="app" class="min-h-screen">
+      <!-- HEADER -->
+      <header
+        class="sticky top-0 z-40 border-b border-gray-200 bg-gradient-to-r from-emerald-700 to-emerald-600 text-white"
+      >
+        <div
+          class="container mx-auto px-4 py-3 flex items-center justify-between"
+        >
+          <div class="flex items-center gap-3">
+            <img
+              src="https://i.imgur.com/mANQq50.png"
+              alt="logo Petrachi"
+              class="h-10 w-auto object-contain drop-shadow"
+            />
+            <div>
+              <h1 class="text-lg font-extrabold leading-tight">
+                Estoque & Agrofit
+              </h1>
+              <p class="text-[11px] opacity-90">
+                Offline-first • filtros por IA & praga
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span
+              id="badgeOnline"
+              class="text-[11px] px-2.5 py-1 rounded-full border border-white/40 bg-white/10 backdrop-blur"
+              >Online</span
+            >
+            <button
+              id="btnSync"
+              class="text-xs px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/30"
+            >
+              Sincronizar
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- CONTEÚDO -->
+      <main class="container mx-auto px-4 py-4">
+        <!-- CONTROLES -->
+        <section class="mb-4 space-y-3">
+          <div class="relative">
+            <input
+              id="qNome"
+              type="search"
+              inputmode="search"
+              placeholder="Buscar por nome comercial…"
+              class="w-full border border-gray-300 rounded-xl pl-4 pr-24 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+            />
+            <button
+              id="btnLimparNome"
+              class="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-300"
+            >
+              Limpar
+            </button>
+          </div>
+          <div class="grid grid-cols-1 gap-3">
+            <input
+              id="qIA"
+              type="text"
+              placeholder="Ingrediente ativo (ex.: difenoconazol)"
+              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-emerald-300"
+            />
+            <input
+              id="qPraga"
+              type="text"
+              placeholder="Praga (ex.: mosca branca)"
+              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-emerald-300"
+            />
+          </div>
+          <div class="flex items-center justify-between">
+            <button
+              id="btnLimparFiltros"
+              class="text-sm px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-300"
+            >
+              Limpar filtros
+            </button>
+            <label class="inline-flex items-center gap-2 text-sm">
+              <input
+                id="chkSomenteComRegistro"
+                type="checkbox"
+                class="scale-125"
+                checked
+              />
+              Somente itens com registro válido
+            </label>
+          </div>
+        </section>
+
+        <!-- IMPORT/EXPORT (opcional) -->
+        <section class="mb-4">
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <label
+              class="px-3 py-2 rounded-lg bg-white border border-gray-300 cursor-pointer hover:bg-gray-50"
+            >
+              Importar ESTOQUE (.csv/.xlsx)
+              <input
+                id="fileEstoque"
+                type="file"
+                accept=".csv,.xlsx"
+                class="hidden"
+              />
+            </label>
+            <label
+              class="px-3 py-2 rounded-lg bg-white border border-gray-300 cursor-pointer hover:bg-gray-50"
+            >
+              Importar CATÁLOGO (.csv/.json)
+              <input
+                id="fileCatalogo"
+                type="file"
+                accept=".csv,.json"
+                class="hidden"
+              />
+            </label>
+            <button
+              id="btnExportar"
+              class="px-3 py-2 rounded-lg bg-white border border-gray-300 hover:bg-gray-50"
+            >
+              Exportar filtros (JSON)
+            </button>
+          </div>
+        </section>
+
+        <!-- TABS -->
+        <section
+          class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
+        >
+          <header
+            class="px-4 py-3 border-b border-gray-200 flex items-center justify-between"
+          >
+            <div class="flex items-center gap-1">
+              <button
+                id="tabEstoque"
+                class="px-3 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white"
+              >
+                Estoque
+              </button>
+              <button
+                id="tabFora"
+                class="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-100 border"
+              >
+                Fora do estoque
+              </button>
+            </div>
+            <div class="text-[11px] text-gray-500">
+              <span id="resumoContagem">—</span>
+            </div>
+          </header>
+
+          <div class="p-4">
+            <div id="lista" class="grid grid-cols-1 gap-3"></div>
+            <div id="vazio" class="hidden text-sm text-gray-500">
+              Nenhum item encontrado.
+            </div>
+            <div
+              id="loading"
+              class="hidden text-sm text-gray-600 flex items-center gap-2"
+            >
+              <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle
+                  class="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="4"
+                ></circle>
+                <path
+                  class="opacity-75"
+                  d="M4 12a8 8 0 018-8"
+                  fill="currentColor"
+                ></path>
+              </svg>
+              Carregando…
+            </div>
+          </div>
+        </section>
+
+        <!-- TOAST -->
+        <div
+          id="toast"
+          class="fixed bottom-6 left-1/2 -translate-x-1/2 hidden px-4 py-3 rounded-xl text-white shadow-lg"
+        ></div>
+      </main>
+    </div>
+
+    <script>
+      // ===================== CONFIG/STATE =====================
+      const STORAGE_KEY = "petrachi_estoque_v1";
+      const STORAGE_CAT = "petrachi_catalogo_v1";
+      const STORAGE_FILTROS = "petrachi_filtros_v1";
+
+      const state = {
+        tab: "ESTOQUE",
+        estoque: [],
+        catalogo: [],
+        filtros: { nome: "", ia: "", praga: "", somenteRegistroValido: true },
+      };
+
+      function fmtQtd(x) {
+        if (x == null || isNaN(x)) return "0";
+        // arredonda em JS para garantir que 6816.400000000001 vire 6816.4
+        const r = Math.round((Number(x) + Number.EPSILON) * 1000) / 1000;
+        // mostra até 3 casas, sem zeros sobrando
+        return r.toLocaleString("pt-BR", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 3,
+        });
+      }
+
+      const $ = (s) => document.querySelector(s);
+      const $$ = (s) => document.querySelectorAll(s);
+
+      function setOnlineBadge() {
+        const el = $("#badgeOnline");
+        if (!el) return;
+        const on = navigator.onLine;
+        el.textContent = on ? "Online" : "Offline";
+        el.className = `text-[11px] px-2.5 py-1 rounded-full border ${
+          on
+            ? "border-white/40 bg-white/10"
+            : "border-yellow-300 bg-yellow-100 text-yellow-900"
+        } backdrop-blur`;
+      }
+      window.addEventListener("online", setOnlineBadge);
+      window.addEventListener("offline", setOnlineBadge);
+
+      function toast(msg, ok = true) {
+        const el = $("#toast");
+        el.textContent = msg;
+        el.className = `fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl text-white shadow-lg ${
+          ok ? "bg-emerald-600" : "bg-red-600"
+        }`;
+        el.classList.remove("hidden");
+        setTimeout(() => el.classList.add("hidden"), 2200);
+      }
+
+      // ===================== FUZZY & PARSE (mesmo do seu código) =====================
+      function normalize(s) {
+        if (!s) return "";
+        return String(s)
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[-_/]/g, " ")
+          .replace(/[^a-z0-9% ]/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+      function matchFuzzy(needle, hay) {
+        const n = normalize(needle),
+          h = normalize(hay);
+        if (!n) return true;
+        if (h.includes(n)) return true;
+        return h.replace(/\s+/g, "-").includes(n.replace(/\s+/g, "-"));
+      }
+
+      function parseCSV(text) {
+        const sep = text.includes(";") && !text.includes(",") ? ";" : ",";
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        if (!lines.length) return [];
+        const header = lines[0].split(sep).map((s) => s.trim());
+        return lines.slice(1).map((ln) => {
+          const cols = ln.split(sep);
+          const obj = {};
+          header.forEach((h, i) => (obj[h] = (cols[i] ?? "").trim()));
+          return obj;
+        });
+      }
+      function parseXLSX(arrayBuffer) {
+        const wb = XLSX.read(arrayBuffer, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        return XLSX.utils.sheet_to_json(ws, { defval: "" });
+      }
+      function mapFields(row) {
+        const get = (keys, def = "") => {
+          for (const k of keys)
+            if (k in row && row[k] !== "") return String(row[k]).trim();
+          return def;
+        };
+        const num = (s) => {
+          const v = String(s ?? "").replace(",", ".");
+          const f = parseFloat(v);
+          return Number.isFinite(f) ? f : 0;
+        };
+        return {
+          nome: get([
+            "nome_comercial",
+            "Nome Comercial",
+            "nome",
+            "Produto",
+            "produto",
+          ]),
+          qtd: num(get(["quantidade", "qtd", "estoque", "saldo"], "0")),
+          und: get(["unidade", "un", "und", "u.m."]),
+          ia: get(["ia", "ingrediente_ativo", "ingrediente ativo", "IAs"]),
+          pragas: get(["pragas", "praga", "alvos", "pragas_alvo"]),
+          registro: get([
+            "registro",
+            "numero_registro",
+            "n_registro",
+            "Nº Registro",
+          ]),
+          empresa: get(["empresa", "titular_registro", "registrante"]),
+          formulacao: get(["formulacao", "formulação", "form"]),
+        };
+      }
+
+      // ===================== STORAGE =====================
+      function saveAll() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.estoque));
+        localStorage.setItem(STORAGE_CAT, JSON.stringify(state.catalogo));
+        localStorage.setItem(STORAGE_FILTROS, JSON.stringify(state.filtros));
+      }
+      function loadAll() {
+        try {
+          state.estoque = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        } catch {}
+        try {
+          state.catalogo = JSON.parse(
+            localStorage.getItem(STORAGE_CAT) || "[]"
+          );
+        } catch {}
+        try {
+          state.filtros = JSON.parse(
+            localStorage.getItem(STORAGE_FILTROS) ||
+              JSON.stringify(state.filtros)
+          );
+        } catch {}
+      }
+
+      // ===================== FILTROS =====================
+      function itemMatchesFilters(item) {
+        const f = state.filtros;
+        if (f.nome && !matchFuzzy(f.nome, item.nome || "")) return false;
+        if (f.ia) {
+          const listIA = String(item.ia || "")
+            .split(/[,;|]/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (!listIA.some((x) => matchFuzzy(f.ia, x))) return false;
+        }
+        if (f.praga) {
+          const listP = String(item.pragas || "")
+            .split(/[,;|]/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (!listP.some((x) => matchFuzzy(f.praga, x))) return false;
+        }
+        if (f.somenteRegistroValido && !String(item.registro || "").trim())
+          return false;
+        return true;
+      }
+      function getEstoqueFiltrado() {
+        return state.estoque.filter(itemMatchesFilters);
+      }
+      function getForaDoEstoqueFiltrado() {
+        const nomesEstoque = new Set(
+          state.estoque.map((x) => normalize(x.nome))
+        );
+        const fora = state.catalogo.filter(
+          (c) => !nomesEstoque.has(normalize(c.nome))
+        );
+        return fora.filter(itemMatchesFilters);
+      }
+
+      // ===================== RENDER =====================
+      function renderLista() {
+        const grid = $("#lista"),
+          vazio = $("#vazio"),
+          resumo = $("#resumoContagem");
+        const data =
+          state.tab === "ESTOQUE"
+            ? getEstoqueFiltrado()
+            : getForaDoEstoqueFiltrado();
+        grid.innerHTML = "";
+        if (!data.length) {
+          vazio.classList.remove("hidden");
+          resumo.textContent = "0 itens";
+          return;
+        }
+        vazio.classList.add("hidden");
+        resumo.textContent = `${data.length} item(ns)`;
+        data.forEach((item) => {
+          const card = document.createElement("div");
+          card.className =
+            "rounded-2xl overflow-hidden border border-gray-200 bg-white";
+          card.innerHTML = `
+                  <div class="p-4 space-y-2">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="font-semibold leading-snug">${
+                        item.nome || "—"
+                      }</div>
+                      ${
+                        state.tab === "ESTOQUE"
+                          ? `<span class="text-[11px] px-2 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">
+     ${fmtQtd(item.qtd)} ${item.und || ""}
+   </span>`
+                          : ""
+                      }
+                    </div>
+                    <div class="text-xs text-gray-600 space-y-0.5">
+                      <div><span class="font-medium">IA:</span> ${
+                        item.ia || "—"
+                      }</div>
+                      <div><span class="font-medium">Pragas:</span> ${
+                        item.pragas || "—"
+                      }</div>
+                      <div><span class="font-medium">Registro:</span> ${
+                        item.registro || "—"
+                      }</div>
+                      <div><span class="font-medium">Empresa:</span> ${
+                        item.empresa || "—"
+                      }</div>
+                      ${
+                        item.formulacao
+                          ? `<div><span class="font-medium">Formulação:</span> ${item.formulacao}</div>`
+                          : ""
+                      }
+                    </div>
+                    ${
+                      state.tab === "FORA"
+                        ? `<div class="pt-1"><button class="px-3 py-1.5 text-xs rounded-lg border bg-gray-50">Marcar para comprar</button></div>`
+                        : ""
+                    }
+                  </div>`;
+          grid.appendChild(card);
+        });
+      }
+      function setActiveTab(tab) {
+        state.tab = tab;
+        $("#tabEstoque").className =
+          tab === "ESTOQUE"
+            ? "px-3 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white"
+            : "px-3 py-2 rounded-lg text-sm font-semibold bg-gray-100 border";
+        $("#tabFora").className =
+          tab === "FORA"
+            ? "px-3 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white"
+            : "px-3 py-2 rounded-lg text-sm font-semibold bg-gray-100 border";
+        renderLista();
+      }
+
+      // ===================== EVENTOS UI =====================
+      $("#tabEstoque").onclick = () => setActiveTab("ESTOQUE");
+      $("#tabFora").onclick = () => setActiveTab("FORA");
+
+      $("#qNome").addEventListener("input", (e) => {
+        state.filtros.nome = e.target.value.trim();
+        renderLista();
+      });
+      $("#btnLimparNome").onclick = () => {
+        $("#qNome").value = "";
+        state.filtros.nome = "";
+        renderLista();
+      };
+
+      $("#qIA").addEventListener("input", (e) => {
+        state.filtros.ia = e.target.value.trim();
+        renderLista();
+      });
+      $("#qPraga").addEventListener("input", (e) => {
+        state.filtros.praga = e.target.value.trim();
+        renderLista();
+      });
+
+      $("#btnLimparFiltros").onclick = () => {
+        ["#qNome", "#qIA", "#qPraga"].forEach((id) => ($(id).value = ""));
+        state.filtros = {
+          nome: "",
+          ia: "",
+          praga: "",
+          somenteRegistroValido: true,
+        };
+        $("#chkSomenteComRegistro").checked = true;
+        renderLista();
+        saveAll();
+      };
+      $("#chkSomenteComRegistro").onchange = (e) => {
+        state.filtros.somenteRegistroValido = !!e.target.checked;
+        renderLista();
+        saveAll();
+      };
+
+      // ===================== IMPORT LOCAL (opcional) =====================
+      $("#fileEstoque").addEventListener("change", async (ev) => {
+        const file = ev.target.files?.[0];
+        if (!file) return;
+        $("#loading").classList.remove("hidden");
+        try {
+          let rows = [];
+          if (file.name.toLowerCase().endsWith(".xlsx")) {
+            const buf = await file.arrayBuffer();
+            rows = parseXLSX(buf);
+          } else {
+            const txt = await file.text();
+            rows = parseCSV(txt);
+          }
+          state.estoque = rows.map(mapFields).filter((x) => x.nome);
+          saveAll();
+          setActiveTab("ESTOQUE");
+          toast(`Estoque importado: ${state.estoque.length} itens`);
+        } catch (e) {
+          console.error(e);
+          toast("Falha ao ler estoque", false);
+        } finally {
+          $("#loading").classList.add("hidden");
+        }
+      });
+
+      $("#fileCatalogo").addEventListener("change", async (ev) => {
+        const file = ev.target.files?.[0];
+        if (!file) return;
+        $("#loading").classList.remove("hidden");
+        try {
+          const txt = await file.text();
+          const rows = file.name.toLowerCase().endsWith(".json")
+            ? JSON.parse(txt)
+            : parseCSV(txt);
+          state.catalogo = rows
+            .map((r) => ({
+              nome:
+                r.nome_comercial ||
+                r.nome ||
+                r.Produto ||
+                r.produto ||
+                r["Nome Comercial"] ||
+                "",
+              ia:
+                r.ia ||
+                r.ingrediente_ativo ||
+                r["ingrediente ativo"] ||
+                r.IAs ||
+                "",
+              pragas: r.pragas || r.praga || r.alvos || r["pragas_alvo"] || "",
+              registro:
+                r.registro || r.numero_registro || r["n_registro"] || "",
+              empresa: r.empresa || r.titular_registro || r.registrante || "",
+              formulacao: r.formulacao || r["formulação"] || r.form || "",
+            }))
+            .filter((x) => x.nome);
+          saveAll();
+          if (state.tab === "FORA") renderLista();
+          toast(`Catálogo importado: ${state.catalogo.length} itens`);
+        } catch (e) {
+          console.error(e);
+          toast("Falha ao ler catálogo", false);
+        } finally {
+          $("#loading").classList.add("hidden");
+        }
+      });
+
+      $("#btnExportar").onclick = () => {
+        const blob = new Blob([JSON.stringify(state.filtros, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "filtros_estoque.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      // ===================== SYNC BACKEND =====================
+      const END_Estoque = "/api/estoque";
+      const END_Catalogo = "/api/catalogo";
+      $("#btnSync").onclick = doSync;
+
+      async function doSync() {
+        $("#loading").classList.remove("hidden");
+        try {
+          const resEst = await fetch(END_Estoque, { cache: "no-store" });
+          if (!resEst.ok && resEst.status !== 304)
+            throw new Error(`Estoque HTTP ${resEst.status}`);
+          if (resEst.status !== 304) {
+            const data = await resEst.json();
+            state.estoque = (Array.isArray(data) ? data : data.rows || [])
+              .map(mapFields)
+              .filter((x) => x.nome);
+          }
+          const resCat = await fetch(END_Catalogo, { cache: "no-store" });
+          if (resCat.ok) {
+            const j2 = await resCat.json();
+            const rowsCat = Array.isArray(j2) ? j2 : j2.rows || [];
+            state.catalogo = rowsCat
+              .map((r) => ({
+                nome:
+                  r.nome_comercial ||
+                  r.nome ||
+                  r.Produto ||
+                  r.produto ||
+                  r["Nome Comercial"] ||
+                  "",
+                ia:
+                  r.ia ||
+                  r.ingrediente_ativo ||
+                  r["ingrediente ativo"] ||
+                  r.IAs ||
+                  "",
+                pragas:
+                  r.pragas || r.praga || r.alvos || r["pragas_alvo"] || "",
+                registro:
+                  r.registro || r.numero_registro || r["n_registro"] || "",
+                empresa: r.empresa || r.titular_registro || r.registrante || "",
+                formulacao: r.formulacao || r["formulação"] || r.form || "",
+              }))
+              .filter((x) => x.nome);
+          }
+          saveAll();
+          setActiveTab(state.tab);
+          toast(
+            `Sincronizado: ${state.estoque.length} em estoque, ${state.catalogo.length} no catálogo`
+          );
+        } catch (e) {
+          console.error(e);
+          toast("Falha na sincronização", false);
+        } finally {
+          $("#loading").classList.add("hidden");
+        }
+      }
+
+      // ===================== ETag Poll =====================
+      let lastETag = null;
+      async function tickEstoque() {
+        try {
+          const headers = lastETag ? { "If-None-Match": `"${lastETag}"` } : {};
+          const res = await fetch(END_Estoque, { headers, cache: "no-store" });
+          if (res.status === 304) return;
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const et = res.headers.get("ETag");
+          if (et) lastETag = et.replace(/"/g, "");
+          const data = await res.json();
+          state.estoque = (Array.isArray(data) ? data : data.rows || [])
+            .map(mapFields)
+            .filter((x) => x.nome);
+          saveAll();
+          if (state.tab === "ESTOQUE") renderLista();
+        } catch (e) {
+          console.warn("tickEstoque:", e);
+        }
+      }
+
+      // ===================== BOOT =====================
+      window.addEventListener("DOMContentLoaded", () => {
+        setOnlineBadge();
+        loadAll();
+        $("#qNome").value = state.filtros.nome || "";
+        $("#qIA").value = state.filtros.ia || "";
+        $("#qPraga").value = state.filtros.praga || "";
+        $("#chkSomenteComRegistro").checked =
+          !!state.filtros.somenteRegistroValido;
+        setActiveTab("ESTOQUE");
+        tickEstoque();
+        setInterval(tickEstoque, 30000);
+      });
+
+      // PWA (via /static)
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/static/service-worker.js");
+      }
+    </script>
+  </body>
+</html>
