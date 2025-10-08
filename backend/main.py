@@ -537,49 +537,61 @@ def enrich_with_catalog(estoque_rows: List[Dict[str, Any]],
 
     for it in estoque_rows:
         base = it.copy()
-        nome = base.get("nome","")
+        nome = base.get("nome", "")
         nn = _normalize_name(nome)
         cat = None
 
         if nn in exact_idx:
             cat = exact_idx[nn]
             exact_hits += 1
+            match_type = "exact"
         else:
             sn = _simplify_product_name(nome)
             if sn and sn in simple_idx:
                 cat = simple_idx[sn]
                 approx_hits += 1
+                match_type = "simple"
             else:
-                cand = _fuzzy_match_from_buckets(nome, exact_idx, buckets,
-                                                 threshold=threshold, max_len_diff=max_len_diff,
-                                                 require_same_init=require_same_init)
+                cand = _fuzzy_match_from_buckets(
+                    nome, exact_idx, buckets,
+                    threshold=threshold, max_len_diff=max_len_diff,
+                    require_same_init=require_same_init
+                )
                 if cand:
                     cat = cand
                     approx_hits += 1
+                    match_type = "fuzzy"
+                else:
+                    match_type = "none"
 
         if cat:
+            # completa campos vazios a partir do catálogo
             for field in ["ia","pragas","registro","empresa","formulacao"]:
                 if not str(base.get(field) or "").strip():
                     base[field] = cat.get(field, "")
 
-            # arrays extras (não sobrescreve se já existir)
+            # estruturas auxiliares
             if "pragas_list" not in base or not base["pragas_list"]:
                 base["pragas_list"] = cat.get("pragas_list", [])
             if "pragas_por_cultura" not in base or not base.get("pragas_por_cultura"):
                 base["pragas_por_cultura"] = cat.get("pragas_por_cultura", {})
 
-
-        
+        # 👉 FALTAVA ISTO:
+        base["catalog_match"] = match_type
+        out.append(base)
 
     meta = {
         "total": total,
         "exact_hits": exact_hits,
         "fuzzy_or_simple_hits": approx_hits,
         "match_rate": round((exact_hits + approx_hits) / total * 100, 2) if total else 0.0,
-        "threshold": threshold, "max_len_diff": max_len_diff, "require_same_initial": require_same_init,
+        "threshold": threshold,
+        "max_len_diff": max_len_diff,
+        "require_same_initial": require_same_init,
         "catalog_size": len(catalog_rows),
     }
     return out, meta
+
 
 
 # ==================== Agregações ====================
@@ -828,3 +840,4 @@ async def api_enriquecimento_debug():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
