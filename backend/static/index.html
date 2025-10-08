@@ -601,8 +601,9 @@
       };
 
       // ===================== SYNC BACKEND =====================
-const END_Estoque = "https://estoque-backend.onrender.com/api/estoque";
-const END_Catalogo = "https://estoque-backend.onrender.com/api/catalogo";
+const BASE_URL = "https://estoque-ji6s.onrender.com";
+const END_Estoque = `${BASE_URL}/api/estoque`;
+const END_Catalogo = `${BASE_URL}/api/catalogo`;
       $("#btnSync").onclick = doSync;
 
       async function doSync() {
@@ -700,4 +701,5 @@ const END_Catalogo = "https://estoque-backend.onrender.com/api/catalogo";
     </script>
   </body>
 </html>
+
 
