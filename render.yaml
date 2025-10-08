@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: consulta-produtos-backend
+    rootDir: backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: EXCEL_SHEET
+        value: Produtos utilizados
+      - key: EXCEL_HEADER_ROW
+        value: "4"
+      - key: CATALOGO_PATH
+        value: ../catalogo.xlsx
+      # descomente se for usar Dropbox
+      # - key: DROPBOX_APP_KEY
+      #   sync: false
+      # - key: DROPBOX_APP_SECRET
+      #   sync: false
+      # - key: DROPBOX_REFRESH_TOKEN
+      #   sync: false
+
+  # Descomente isto se quiser o front separado
+  # - type: static
+  #   name: consulta-produtos-frontend
+  #   rootDir: public
+  #   buildCommand: ""
+  #   publishPath: "."
+  #   autoDeploy: true
