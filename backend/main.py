@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 # ==================== Imports ====================
-import os, re, json, hashlib, unicodedata, difflib
+import os, re, json, hashlib, unicodedata, difflib, time
 from io import BytesIO
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
@@ -10,7 +10,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 import pandas as pd
 import httpx
-from fastapi import FastAPI, Response, HTTPException, Query
+from fastapi import FastAPI, Response, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
@@ -33,6 +33,8 @@ CATALOGO_DROPBOX_PATH = os.getenv("CATALOGO_DROPBOX_PATH", "").strip()
 FUZZY_THRESHOLD   = float(os.getenv("FUZZY_THRESHOLD", "0.93"))
 MAX_LEN_DIFF      = int(os.getenv("MAX_LEN_DIFF", "2"))
 REQUIRE_SAME_INIT = os.getenv("REQUIRE_SAME_INITIAL", "1") == "1"
+
+CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "300"))  # 5 min padrão
 
 # ==================== App & Static ====================
 app = FastAPI(title="Petrachi — Estoque & Agrofit")
@@ -62,39 +64,78 @@ def _normalize_name(s: str) -> str:
         s = s.replace(ch, " ")
     return " ".join(s.split())
 
-FORM_CODES = {"ec","wg","sl","sc","cs","od","wp","gr","dc","hc","pm","ds","fs","se","ew"}
 def _simplify_product_name(s: str) -> str:
     """
     Remove tokens de formulação (EC/WG/SL/SC...) e números/concentrações.
     Ex.: "Reglone 200 SL" -> "reglone"
     """
+    FORM_CODES = {"ec","wg","sl","sc","cs","od","wp","gr","dc","hc","pm","ds","fs","se","ew"}
     n = _normalize_name(s)
     if not n:
         return ""
     tokens = [t for t in n.split() if t not in FORM_CODES and not re.fullmatch(r"\d+[.,]?\d*", t)]
     return " ".join(tokens)
 
+def _norm_ascii_lower(s: str) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode("ascii")
+    return s.strip().lower()
+
 def to_dec(s: Any) -> Decimal:
     """
     Converte strings pt-BR/EN para Decimal.
-    Ex.: "1.020,00" -> 1020.00 ; "-94,80" -> -94.80 ; "15" -> 15 ; "-15" -> -15
+    Suporta: "1.020,00", "-94,80", "15", "(15)", "12kg", "20,5%", etc.
     """
     if s is None:
         return Decimal("0")
-    txt = str(s).strip().replace(" ", "")
+    txt = str(s).strip()
     if txt == "":
         return Decimal("0")
+
+    neg = False
+    if txt.startswith("(") and txt.endswith(")"):
+        neg = True
+        txt = txt[1:-1]
+
+    txt = txt.replace(" ", "").replace("%", "")
     if "." in txt and "," in txt:
         txt = txt.replace(".", "").replace(",", ".")
     elif "," in txt:
         txt = txt.replace(",", ".")
-    m = re.search(r"^[+-]?\d+(?:\.\d+)?", txt)
-    if m:
-        txt = m.group(0)
-    try:
-        return Decimal(txt)
-    except Exception:
+
+    m = re.search(r"[+-]?\d+(?:\.\d+)?", txt)
+    if not m:
         return Decimal("0")
+    out = Decimal(m.group(0))
+    return -out if neg else out
+
+def coerce_list(x):
+    """Converte qualquer coisa em lista de strings (suporta ['A','B'], 'A, B', etc.)."""
+    if x is None or x == "":
+        return []
+    if isinstance(x, list):
+        out = []
+        for it in x:
+            s = str(it).strip()
+            if s:
+                out.append(s)
+        return out
+    if isinstance(x, dict):
+        vals = []
+        for k in ("nome", "name", "valor", "value", "label", "texto", "text"):
+            if k in x and x[k]:
+                vals.append(str(x[k]).strip())
+        return [v for v in vals if v]
+    s = str(x).strip()
+    if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
+        try:
+            j = json.loads(s.replace("'", '"'))
+            return coerce_list(j)
+        except Exception:
+            pass
+    parts = re.split(r"[;,|/]+", s)
+    return [p.strip() for p in parts if p.strip()]
 
 # ==================== Front ====================
 @app.get("/", response_class=HTMLResponse)
@@ -129,8 +170,10 @@ async def dropbox_download(path: str) -> bytes:
         "Dropbox-API-Arg": json.dumps({"path": path}),
     }
     url = "https://content.dropboxapi.com/2/files/download"
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
         r = await client.post(url, headers=headers)
+        if r.status_code == 409:
+            raise HTTPException(status_code=404, detail=f"Arquivo não encontrado no Dropbox: {path}")
         r.raise_for_status()
         return r.content
 
@@ -151,7 +194,7 @@ def map_row_estoque(row: Dict[str, Any]) -> Dict[str, Any]:
     nome = get(["nome_comercial","nome comercial","nome","produto"])
     und  = get(["unidade","un","und","u.m.","u.m"])
     qtd_field = get(["quantidade","qtd","estoque","saldo"], "0")
-    qtd = to_dec(qtd_field)  # usa direto o sinal do valor
+    qtd = to_dec(qtd_field)
     data = get(["data","dt","emissão","emissao","data movimento","data_movimento"])
 
     return {
@@ -205,41 +248,11 @@ def read_xlsx_safely(xls_bytes: bytes, sheet_name: str, header_row_1based: int) 
     return mapped, meta, df
 
 # ==================== Catálogo (Agrofit) ====================
-
-def coerce_list(x):
-    """Converte qualquer coisa em lista de strings (suporta ['A','B'], 'A, B', etc.)."""
-    if x is None or x == "":
-        return []
-    if isinstance(x, list):
-        out = []
-        for it in x:
-            s = str(it).strip()
-            if s:
-                out.append(s)
-        return out
-    if isinstance(x, dict):
-        vals = []
-        for k in ("nome", "name", "valor", "value", "label", "texto", "text"):
-            if k in x and x[k]:
-                vals.append(str(x[k]).strip())
-        return [v for v in vals if v]
-    s = str(x).strip()
-    # tenta JSON de lista
-    if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
-        try:
-            j = json.loads(s.replace("'", '"'))
-            return coerce_list(j)
-        except Exception:
-            pass
-    # separadores comuns
-    parts = re.split(r"[;,|/]+", s)
-    return [p.strip() for p in parts if p.strip()]
-
 def map_catalog_row(row: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Converte o catálogo para {nome, ia, pragas, registro, empresa, formulacao,
-    pragas_list, pragas_por_cultura}.
-    - Aceita múltiplos nomes/aliases em campos variados
+    Converte o catálogo para {nome, aliases, ia, pragas, registro, empresa, formulacao,
+    pragas_list, pragas_por_cultura, culturas, culturas_norm}.
+    - Aceita múltiplos nomes/aliases
     - IA formatada: 'ingrediente (grupo) (conc UNID)'
     - Extrai pragas por cultura a partir de 'indicacao_uso'
     """
@@ -251,45 +264,6 @@ def map_catalog_row(row: Dict[str, Any]) -> Dict[str, Any]:
                 return lower_map[k]
         return default
 
-    def coerce_list(x):
-        if x is None or x == "": return []
-        if isinstance(x, list): return [str(it).strip() for it in x if str(it).strip()]
-        if isinstance(x, dict):
-            vals = []
-            for k in ("nome","name","valor","value","label","texto","text"):
-                if k in x and x[k]: vals.append(str(x[k]).strip())
-            return [v for v in vals if v]
-        s = str(x).strip()
-        # tenta json/serializado
-        if (s.startswith("[") and s.endswith("]")) or (s.startswith("{") and s.endswith("}")):
-            try:
-                j = json.loads(s.replace("'", '"'))
-                return coerce_list(j)
-            except Exception:
-                pass
-        return [p.strip() for p in re.split(r"[;,|/]+", s) if p.strip()]
-
-    # ---------- nomes / aliases ----------
-    cand_nomes = []
-    for k in ["marca comercial","marca_comercial","nome comercial","nome_comercial",
-              "produto comercial","produto_comercial","nome do produto","nome_do_produto",
-              "produto","produto nome","produto_nome","nome"]:
-        if k in lower_map and lower_map[k]:
-            cand_nomes += coerce_list(lower_map[k])
-    for k in ["sinonimos","sinônimos","aliases","alias","nomes_alternativos","marcas equivalentes","nomes equivalentes"]:
-        if k in lower_map and lower_map[k]:
-            cand_nomes += coerce_list(lower_map[k])
-
-    seen = set()
-    aliases = []
-    for s in cand_nomes:
-        key = s.lower()
-        if key not in seen:
-            seen.add(key)
-            aliases.append(s)
-    nome = aliases[0] if aliases else ""
-
-    # ---------- helpers IA ----------
     def _fmt_unidade(unidade: str) -> str:
         u = (unidade or "").strip().lower()
         mapping = {
@@ -341,6 +315,26 @@ def map_catalog_row(row: Dict[str, Any]) -> Dict[str, Any]:
             except Exception:
                 pass
         return [s]
+
+    # ---------- nomes / aliases ----------
+    cand_nomes = []
+    for k in ["marca comercial","marca_comercial","nome comercial","nome_comercial",
+              "produto comercial","produto_comercial","nome do produto","nome_do_produto",
+              "produto","produto nome","produto_nome","nome"]:
+        if k in lower_map and lower_map[k]:
+            cand_nomes += coerce_list(lower_map[k])
+    for k in ["sinonimos","sinônimos","aliases","alias","nomes_alternativos","marcas equivalentes","nomes equivalentes"]:
+        if k in lower_map and lower_map[k]:
+            cand_nomes += coerce_list(lower_map[k])
+
+    seen = set()
+    aliases = []
+    for s in cand_nomes:
+        key = s.lower()
+        if key not in seen:
+            seen.add(key)
+            aliases.append(s)
+    nome = aliases[0] if aliases else ""
 
     # ---------- IA ----------
     ia_det_raw = get_first(["ingrediente_ativo_detalhado","ingredientes ativos","ingredientes_ativos"])
@@ -405,8 +399,12 @@ def map_catalog_row(row: Dict[str, Any]) -> Dict[str, Any]:
     empresa    = str(get_first(["titular_registro","registrante","empresa","titular do registro","titular do produto"]) or "").strip()
     formulacao = str(get_first(["formulacao","formulação","form","formulacao comercial","formulação comercial"]) or "").strip()
 
+    culturas = sorted([c for c in pragas_por_cultura.keys() if str(c).strip()])
+    culturas_norm = sorted({_norm_ascii_lower(c) for c in culturas})
+
     return {
         "nome": nome,
+        "aliases": aliases,
         "ia": ia_clean,
         "pragas": pragas_clean,
         "registro": registro,
@@ -414,11 +412,9 @@ def map_catalog_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "formulacao": formulacao,
         "pragas_list": pragas_list,
         "pragas_por_cultura": {k: sorted(v) for k, v in pragas_por_cultura.items()},
+        "culturas": culturas,
+        "culturas_norm": culturas_norm,
     }
-
-
-
-
 
 async def load_catalog_rows_raw() -> List[Dict[str, Any]]:
     # Prioridade: Dropbox -> local -> []
@@ -445,7 +441,6 @@ async def load_catalog_rows_raw() -> List[Dict[str, Any]]:
             print("[CATALOGO] falha local:", e)
     return []
 
-
 def _build_catalog_index(catalog_rows: List[Dict[str, Any]]):
     """
     Cria índices por:
@@ -460,7 +455,6 @@ def _build_catalog_index(catalog_rows: List[Dict[str, Any]]):
 
     for raw in catalog_rows:
         r = map_catalog_row(raw)
-        # pega a lista completa de nomes/aliases; se não existir, cai para o campo nome
         names = r.get("aliases") or ([r.get("nome")] if r.get("nome") else [])
         if not names:
             continue
@@ -486,8 +480,6 @@ def _build_catalog_index(catalog_rows: List[Dict[str, Any]]):
             buckets.setdefault(key, []).append((nn, r))
 
     return exact_idx, simple_idx, buckets
-
-
 
 def _fuzzy_match_from_buckets(q: str,
                               exact_idx: Dict[str, Dict[str, Any]],
@@ -524,7 +516,6 @@ def _fuzzy_match_from_buckets(q: str,
                     best_ratio = ratio
                     best = cand_row
     return best
-
 
 def enrich_with_catalog(estoque_rows: List[Dict[str, Any]],
                         catalog_rows: List[Dict[str, Any]],
@@ -576,7 +567,12 @@ def enrich_with_catalog(estoque_rows: List[Dict[str, Any]],
             if "pragas_por_cultura" not in base or not base.get("pragas_por_cultura"):
                 base["pragas_por_cultura"] = cat.get("pragas_por_cultura", {})
 
-        # 👉 FALTAVA ISTO:
+            # culturas para filtro instantâneo no front
+            if not base.get("culturas"):
+                base["culturas"] = list(cat.get("culturas") or [])
+            if not base.get("culturas_norm"):
+                base["culturas_norm"] = list(cat.get("culturas_norm") or [])
+
         base["catalog_match"] = match_type
         out.append(base)
 
@@ -592,13 +588,11 @@ def enrich_with_catalog(estoque_rows: List[Dict[str, Any]],
     }
     return out, meta
 
-
-
 # ==================== Agregações ====================
 def aggregate_estoque(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Agrega por nome comercial → saldo (somatório com sinal), unidade mais comum
-    e campos enriquecidos.
+    e campos enriquecidos (inclui culturas para filtro no front).
     """
     buckets: Dict[str, Dict[str, Any]] = {}
     und_counts: Dict[str, Counter] = defaultdict(Counter)
@@ -624,32 +618,45 @@ def aggregate_estoque(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             if not b[k] and (r.get(k) or "").strip():
                 b[k] = (r.get(k) or "").strip()
 
-        # >>> NEW: acumula pragas
+        # acumula pragas/culturas
         if r.get("pragas_list"):
             b.setdefault("pragas_list", set()).update(r["pragas_list"])
         if r.get("pragas_por_cultura"):
             b.setdefault("pragas_por_cultura", {})
             for cul, plist in r["pragas_por_cultura"].items():
                 b["pragas_por_cultura"].setdefault(cul, set()).update(plist)
-        # <<< NEW
+        if r.get("culturas"):
+            b.setdefault("culturas", set()).update(r["culturas"])
+        if r.get("culturas_norm"):
+            b.setdefault("culturas_norm", set()).update(r["culturas_norm"])
+
+        # diagnosticar match (se qualquer linha foi fuzzy, marca fuzzy; senão simple; senão exact/none)
+        mt = r.get("catalog_match", "none")
+        cur = b.get("catalog_match")
+        order = {"fuzzy": 3, "simple": 2, "exact": 1, "none": 0}
+        if cur is None or order.get(mt, 0) > order.get(cur, 0):
+            b["catalog_match"] = mt
 
     for nome, b in buckets.items():
         if und_counts[nome]:
             b["und"] = und_counts[nome].most_common(1)[0][0]
         b["qtd"] = float(b["qtd"].quantize(Decimal("0.001"), rounding=ROUND_HALF_UP))
 
-        # converte estruturas e monta resumo de pragas
+        # converter sets e montar resumo de pragas
         if "pragas_list" in b and isinstance(b["pragas_list"], set):
             b["pragas_list"] = sorted(b["pragas_list"])
         if "pragas_por_cultura" in b:
             b["pragas_por_cultura"] = {k: sorted(list(v)) for k, v in b["pragas_por_cultura"].items()}
+        if "culturas" in b and isinstance(b["culturas"], set):
+            b["culturas"] = sorted(b["culturas"], key=lambda s: s.lower())
+        if "culturas_norm" in b and isinstance(b["culturas_norm"], set):
+            b["culturas_norm"] = sorted(b["culturas_norm"])
+
         b["pragas_count"] = len(b.get("pragas_list", []))
         if b["pragas_count"] > 0 and not b.get("pragas"):
             top = b["pragas_list"][:5]
             extra = b["pragas_count"] - len(top)
             b["pragas"] = "; ".join(top) + (f" (+{extra})" if extra > 0 else "")
-
-
 
     out = list(buckets.values())
     out.sort(key=lambda x: x["nome"].lower())
@@ -683,20 +690,12 @@ def resumo_entradas_saidas(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out.sort(key=lambda x: x["nome"].lower())
     return out
 
-# ==================== APIs ====================
-@app.get("/api/estoque")
-async def api_estoque(
-    if_none_match: Optional[str] = None,
-    culturas: Optional[str] = Query(None, description="CSV de culturas desejadas (ex: milho,soja,trigo,batata)"),
-    qpraga: Optional[str] = Query(None, description="Texto para filtrar por praga (case-insensitive)")
-):
-    # 1) baixa estoque
-    try:
-        xls = await dropbox_download(DROPBOX_FILE_PATH)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Dropbox download falhou: {e}")
+# ==================== Cache em memória (estoque agregado) ====================
+_cache = {"timestamp": 0.0, "etag": None, "data": None}
 
-    # 2) baixa catálogo (para compor ETag)
+async def _compute_fresh_dataset() -> Tuple[str, List[Dict[str, Any]]]:
+    xls = await dropbox_download(DROPBOX_FILE_PATH)
+
     cat_bytes = b""
     try:
         if CATALOGO_DROPBOX_PATH:
@@ -707,41 +706,74 @@ async def api_estoque(
     except Exception:
         cat_bytes = b""
 
-    combined_etag = make_etag_from_bytes(xls, cat_bytes or b"")
-    if if_none_match and combined_etag.replace('"','') == if_none_match.replace('"',''):
-        return Response(status_code=304, headers={"ETag": f'"{combined_etag}"'})
+    etag = make_etag_from_bytes(xls, cat_bytes or b"")
 
-    # 3) parse e enriquecer
-    try:
-        mov_rows, _meta, _df = read_xlsx_safely(xls, EXCEL_SHEET, EXCEL_HEADER_ROW)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro lendo planilha: {e}")
-
+    mov_rows, _meta, _df = read_xlsx_safely(xls, EXCEL_SHEET, EXCEL_HEADER_ROW)
     catalog_raw = await load_catalog_rows_raw()
     enriched_rows, _emeta = enrich_with_catalog(mov_rows, catalog_raw)
     aggregated = aggregate_estoque(enriched_rows)
+    return etag, aggregated
 
-    # 4) filtros cultura/praga
-    cul_set = None
+async def get_cached_estoque() -> Tuple[str, List[Dict[str, Any]]]:
+    global _cache
+    now = time.time()
+    if _cache["data"] is not None and (now - _cache["timestamp"] < CACHE_TTL_SECONDS):
+        return _cache["etag"], _cache["data"]
+
+    etag, aggregated = await _compute_fresh_dataset()
+    _cache = {"timestamp": now, "etag": etag, "data": aggregated}
+    return etag, aggregated
+
+# ==================== APIs ====================
+@app.get("/api/estoque")
+async def api_estoque(
+    request: Request,
+    culturas: Optional[str] = Query(None, description="CSV de culturas desejadas (ex: milho,soja,trigo,batata)"),
+    qpraga: Optional[str] = Query(None, description="Texto para filtrar por praga (case-insensitive)")
+):
+    # Usa cache em memória + ETag para evitar retrabalho
+    etag, aggregated = await get_cached_estoque()
+
+    # ETag padrão HTTP via header
+    client_inm = (request.headers.get("if-none-match") or "").replace('"','')
+    if client_inm and etag == client_inm:
+        return Response(status_code=304, headers={"ETag": f'"{etag}"'})
+
+    # Filtros cultura/praga (estritos por cultura, acento-insensível)
+    cul_set_norm = None
     if culturas:
-        cul_set = {c.strip().lower() for c in culturas.split(",") if c.strip()}
-    q = (qpraga or "").strip().lower() or None
+        cul_set_norm = {_norm_ascii_lower(c) for c in culturas.split(",") if c.strip()}
+        if not cul_set_norm:
+            cul_set_norm = None
+
+    def _norm(s: str) -> str:
+        return _norm_ascii_lower(s)
+
+    q = _norm(qpraga) if qpraga else None
 
     filtered = []
     for item in aggregated:
-        pragas_list = item.get("pragas_list", [])
         pragas_by_cul = item.get("pragas_por_cultura", {})
+        culturas_norm = item.get("culturas_norm", [])
+        pragas_list = item.get("pragas_list", [])
 
-        if cul_set:
+        # Filtragem por culturas: ESTRITA (sem fallback para "")
+        if cul_set_norm:
+            if not set(culturas_norm) & cul_set_norm:
+                # produto nem pertence às culturas pedidas
+                continue
             keep = []
+            # Reconstrói pragas_list considerando apenas as culturas pedidas
             for cul, plist in pragas_by_cul.items():
-                if cul and cul.strip().lower() in cul_set:
+                if _norm(cul) in cul_set_norm:
                     keep.extend(plist)
-            if "" in pragas_by_cul and not keep:
-                keep.extend(pragas_by_cul[""])
             pragas_list = sorted(set(keep))
+            if not pragas_list:
+                # Se pediu cultura e não há pragas mapeadas nessa cultura, descarta
+                continue
 
-        if q and not any(q in p.lower() for p in pragas_list):
+        # Filtro por praga (acento-insensível)
+        if q and not any(q in _norm(p) for p in pragas_list):
             continue
 
         out = dict(item)
@@ -757,11 +789,18 @@ async def api_estoque(
         filtered.append(out)
 
     body = json.dumps(filtered, ensure_ascii=False).encode("utf-8")
-    return Response(content=body, media_type="application/json", headers={"ETag": f'"{combined_etag}"'})
-
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={
+            "ETag": f'"{etag}"',
+            "Cache-Control": "private, max-age=60",
+        },
+    )
 
 @app.get("/api/estoque/resumo")
 async def api_estoque_resumo():
+    # Usa dataset fresco para garantir consistência do resumo
     try:
         xls = await dropbox_download(DROPBOX_FILE_PATH)
         mov_rows, _meta, _df = read_xlsx_safely(xls, EXCEL_SHEET, EXCEL_HEADER_ROW)
@@ -822,6 +861,37 @@ async def api_catalogo():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro lendo catálogo: {e}")
 
+@app.get("/api/culturas")
+async def api_culturas():
+    """
+    Retorna a lista de culturas conhecidas.
+    Prioriza as culturas mapeadas no CATÁLOGO (indicacao_uso),
+    e faz fallback para o que vier do estoque enriquecido.
+    """
+    try:
+        # 1) tenta pelo catálogo
+        rows = await load_catalog_rows_raw()
+        culturas = set()
+        for raw in rows:
+            m = map_catalog_row(raw)
+            for cul in (m.get("pragas_por_cultura") or {}).keys():
+                if cul and str(cul).strip():
+                    culturas.add(str(cul).strip())
+
+        if not culturas:
+            # 2) fallback: derivar do estoque atual (cache ajuda aqui)
+            etag, aggregated = await get_cached_estoque()
+            for r in aggregated:
+                for cul in (r.get("pragas_por_cultura") or {}).keys():
+                    if cul and str(cul).strip():
+                        culturas.add(str(cul).strip())
+
+        # Normaliza ordenação
+        out = sorted({c.strip() for c in culturas if c and c.strip()}, key=lambda s: s.lower())
+        return {"culturas": out, "count": len(out)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro listando culturas: {e}")
+
 @app.get("/api/enriquecimento/debug")
 async def api_enriquecimento_debug():
     try:
@@ -840,4 +910,3 @@ async def api_enriquecimento_debug():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-

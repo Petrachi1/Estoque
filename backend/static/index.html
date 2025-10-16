@@ -1,69 +1,61 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" class="scroll-smooth">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width,initial-scale=1,viewport-fit=cover"
-    />
-    <meta name="theme-color" content="#047857" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#2E7D32" />
+    <meta name="color-scheme" content="light dark" />
     <title>Petrachi — Estoque & Agrofit</title>
 
-    <!-- PWA (via /static) -->
     <link rel="manifest" href="/static/manifest.json" />
-    <script src="/static/service-worker.js"></script>
     <link rel="icon" href="/static/icon-192.png" />
 
-    <!-- Tailwind -->
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- SheetJS (ler .xlsx local, se precisar) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+
     <style>
-      input,
-      button {
-        touch-action: manipulation;
-      }
-      .container {
-        max-width: 720px;
-      }
+      :root { --red:#c51d1d; --green:#4ba64c; --green-dark:#2e7d32; }
+      body { font-family: "Inter", sans-serif; }
+      [x-cloak]{ display:none !important; }
+      .card-enter{ opacity:0; transform:translateY(16px); transition:opacity .25s, transform .25s; }
+      .card-enter-active{ opacity:1; transform:translateY(0); }
+      .chip{padding:.125rem .5rem;border-radius:9999px;border-width:1px;display:inline-block;font-size:11px}
     </style>
+
+    <script>
+      (()=>{ const prefersDark=matchMedia("(prefers-color-scheme: dark)").matches;
+        const stored=localStorage.getItem("darkMode");
+        const isDark = stored==="true" || (stored===null && prefersDark);
+        document.documentElement.classList.toggle("dark", isDark);
+      })();
+    </script>
   </head>
-  <body class="bg-[#F4F6F8] text-gray-800">
-    <div id="app" class="min-h-screen">
+
+  <body x-data="app()" x-init="init()" class="bg-gray-50 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
+    <div class="min-h-screen">
       <!-- HEADER -->
-      <header
-        class="sticky top-0 z-40 border-b border-gray-200 bg-gradient-to-r from-emerald-700 to-emerald-600 text-white"
-      >
-        <div
-          class="container mx-auto px-4 py-3 flex items-center justify-between"
-        >
+      <header class="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-lg border-b border-gray-200 dark:border-gray-700 shadow-sm">
+        <div class="container mx-auto px-4 py-3 flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <img
-              src="https://i.imgur.com/mANQq50.png"
-              alt="logo Petrachi"
-              class="h-10 w-auto object-contain drop-shadow"
-            />
+            <img src="https://i.imgur.com/mANQq50.png" alt="logo Petrachi" class="h-10 w-auto object-contain"/>
             <div>
-              <h1 class="text-lg font-extrabold leading-tight">
-                Estoque & Agrofit
-              </h1>
-              <p class="text-[11px] opacity-90">
-                Offline-first • filtros por IA & praga
-              </p>
+              <h1 class="text-lg font-bold text-gray-800 dark:text-white leading-tight">Estoque & Agrofit</h1>
+              <p class="text-xs text-gray-500 dark:text-gray-400">Busca inteligente de defensivos</p>
             </div>
           </div>
-          <div class="flex items-center gap-2">
-            <span
-              id="badgeOnline"
-              class="text-[11px] px-2.5 py-1 rounded-full border border-white/40 bg-white/10 backdrop-blur"
-              >Online</span
-            >
-            <button
-              id="btnSync"
-              class="text-xs px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/30"
-            >
+          <div class="flex items-center gap-2 sm:gap-3">
+            <span id="badgeOnline" class="text-xs px-3 py-1 rounded-full font-medium"></span>
+            <button @click="toggleDarkMode" class="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" title="Alternar tema">
+              <svg x-show="!darkMode" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+              <svg x-show="darkMode" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            </button>
+            <button id="btnSync" @click="doSync" class="hidden sm:flex text-sm px-4 py-2 rounded-lg bg-[var(--red)] text-white hover:brightness-110 active:translate-y-px font-semibold items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h5M20 20v-5h-5M4 4l16 16"/></svg>
               Sincronizar
             </button>
           </div>
@@ -71,628 +63,517 @@
       </header>
 
       <!-- CONTEÚDO -->
-      <main class="container mx-auto px-4 py-4">
+      <main class="container mx-auto px-4 py-6">
         <!-- CONTROLES -->
-        <section class="mb-4 space-y-3">
-          <div class="relative">
-            <input
-              id="qNome"
-              type="search"
-              inputmode="search"
-              placeholder="Buscar por nome comercial…"
-              class="w-full border border-gray-300 rounded-xl pl-4 pr-24 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-300"
-            />
-            <button
-              id="btnLimparNome"
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-xs px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-300"
-            >
-              Limpar
-            </button>
+        <section class="mb-6 p-4 sm:p-5 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="relative col-span-1 md:col-span-3">
+              <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+              <input id="qNome" type="search" placeholder="Buscar por nome comercial…" class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg pl-10 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[var(--green)]"
+                     @input.debounce.180ms="filtros.nome = $event.target.value.trim(); onFilterChange()" />
+            </div>
+            <input id="qIA" type="text" placeholder="Ingrediente ativo (ex: glifosato)" class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-[var(--green)]"
+                   @input.debounce.180ms="filtros.ia = $event.target.value.trim(); onFilterChange()" />
+            <input id="qPraga" type="text" placeholder="Praga (ex: buva / bipolaris)" class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-[var(--green)]"
+                   @input.debounce.180ms="filtros.praga = $event.target.value.trim(); onFilterChange()" />
           </div>
-          <div class="grid grid-cols-1 gap-3">
-            <input
-              id="qIA"
-              type="text"
-              placeholder="Ingrediente ativo (ex.: difenoconazol)"
-              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-emerald-300"
-            />
-            <input
-              id="qPraga"
-              type="text"
-              placeholder="Praga (ex.: mosca branca)"
-              class="w-full border border-gray-300 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-emerald-300"
-            />
-          </div>
-          <div class="flex items-center justify-between">
-            <button
-              id="btnLimparFiltros"
-              class="text-sm px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-300"
-            >
-              Limpar filtros
-            </button>
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input
-                id="chkSomenteComRegistro"
-                type="checkbox"
-                class="scale-125"
-                checked
-              />
-              Somente itens com registro válido
-            </label>
+
+          <!-- CULTURAS -->
+          <div class="mt-4 grid grid-cols-1 gap-3">
+            <div class="relative">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Culturas</label>
+              <button type="button" @click="toggleCulturas()" class="w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                <div id="chipsCulturas" class="flex flex-wrap gap-1.5 text-xs"></div>
+                <svg class="h-4 w-4 text-gray-500" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clip-rule="evenodd"/></svg>
+              </button>
+
+              <!-- Popover -->
+              <div x-show="ui.culturasOpen" x-transition.opacity x-cloak class="absolute z-40 mt-2 w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl">
+                <div class="p-3 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
+                  <input id="buscaCulturas" type="search" placeholder="Buscar cultura…" class="flex-1 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-800 focus:ring-2 focus:ring-[var(--green)]"
+                         @input.debounce.150ms="ui.busca = $event.target.value.trim(); renderListaCulturas(true)" />
+                  <button @click="toggleSelectAll()" class="text-xs px-2.5 py-2 rounded-lg border bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border-gray-300 dark:border-gray-600">Selecionar tudo</button>
+                </div>
+                <div id="listaCulturas" class="max-h-72 overflow-auto p-2"></div>
+                <div class="p-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between text-[12px] text-gray-600 dark:text-gray-300">
+                  <span id="hintCulturas">Selecione uma ou mais culturas</span>
+                  <div class="flex items-center gap-2">
+                    <button @click="limparCulturas()" class="px-3 py-1.5 rounded-lg border bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border-gray-300 dark:border-gray-600">Limpar</button>
+                    <button @click="ui.culturasOpen=false" class="px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600">Fechar</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row items-center justify-between pt-2 gap-3">
+              <div class="flex items-center gap-2">
+                <button id="btnLimparFiltros" @click="limparFiltros()" class="text-sm px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600">Limpar filtros</button>
+                <label class="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
+                  <input id="chkSomenteComRegistro" type="checkbox" class="rounded text-[var(--green)] focus:ring-[var(--green)] bg-gray-200 dark:bg-gray-600 border-gray-300 dark:border-gray-500"
+                         checked
+                         @change="filtros.somenteRegistroValido = $event.target.checked; onFilterChange()" />
+                  Com registro válido
+                </label>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <label class="px-3 py-2 rounded-lg bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600">
+                  Importar Estoque
+                  <input id="fileEstoque" type="file" accept=".csv,.xlsx" class="hidden" @change="handleFileUpload($event,'estoque')" />
+                </label>
+                <label class="px-3 py-2 rounded-lg bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600">
+                  Importar Catálogo
+                  <input id="fileCatalogo" type="file" accept=".csv,.json" class="hidden" @change="handleFileUpload($event,'catalogo')" />
+                </label>
+              </div>
+            </div>
           </div>
         </section>
 
-        <!-- IMPORT/EXPORT (opcional) -->
-        <section class="mb-4">
-          <div class="flex flex-wrap items-center gap-2 text-xs">
-            <label
-              class="px-3 py-2 rounded-lg bg-white border border-gray-300 cursor-pointer hover:bg-gray-50"
-            >
-              Importar ESTOQUE (.csv/.xlsx)
-              <input
-                id="fileEstoque"
-                type="file"
-                accept=".csv,.xlsx"
-                class="hidden"
-              />
-            </label>
-            <label
-              class="px-3 py-2 rounded-lg bg-white border border-gray-300 cursor-pointer hover:bg-gray-50"
-            >
-              Importar CATÁLOGO (.csv/.json)
-              <input
-                id="fileCatalogo"
-                type="file"
-                accept=".csv,.json"
-                class="hidden"
-              />
-            </label>
-            <button
-              id="btnExportar"
-              class="px-3 py-2 rounded-lg bg-white border border-gray-300 hover:bg-gray-50"
-            >
-              Exportar filtros (JSON)
-            </button>
-          </div>
-        </section>
-
-        <!-- TABS -->
-        <section
-          class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden"
-        >
-          <header
-            class="px-4 py-3 border-b border-gray-200 flex items-center justify-between"
-          >
-            <div class="flex items-center gap-1">
-              <button
-                id="tabEstoque"
-                class="px-3 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white"
-              >
-                Estoque
-              </button>
-              <button
-                id="tabFora"
-                class="px-3 py-2 rounded-lg text-sm font-semibold bg-gray-100 border"
-              >
-                Fora do estoque
-              </button>
+        <!-- TABS & RESULTADOS -->
+        <section>
+          <header class="flex flex-col sm:flex-row items-center justify-between mb-4 gap-3">
+            <div class="flex items-center gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+              <button id="tabEstoque" @click="setActiveTab('ESTOQUE')" class="px-3 sm:px-4 py-2 rounded-md text-sm font-semibold transition-colors"></button>
+              <button id="tabFora" @click="setActiveTab('FORA')" class="px-3 sm:px-4 py-2 rounded-md text-sm font-semibold transition-colors"></button>
             </div>
-            <div class="text-[11px] text-gray-500">
-              <span id="resumoContagem">—</span>
-            </div>
+            <div id="resumoContagem" class="text-sm text-gray-500 dark:text-gray-400 text-center sm:text-right">—</div>
           </header>
 
-          <div class="p-4">
-            <div id="lista" class="grid grid-cols-1 gap-3"></div>
-            <div id="vazio" class="hidden text-sm text-gray-500">
-              Nenhum item encontrado.
-            </div>
-            <div
-              id="loading"
-              class="hidden text-sm text-gray-600 flex items-center gap-2"
-            >
-              <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                <circle
-                  class="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  stroke-width="4"
-                ></circle>
-                <path
-                  class="opacity-75"
-                  d="M4 12a8 8 0 018-8"
-                  fill="currentColor"
-                ></path>
-              </svg>
-              Carregando…
-            </div>
+          <div id="lista" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+
+          <div id="vazio" class="hidden text-center py-16 px-6 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700">
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">Nenhum item encontrado</h3>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Tente ajustar seus filtros de busca.</p>
+          </div>
+
+          <div id="loading" class="hidden text-sm text-gray-600 dark:text-gray-400 flex items-center justify-center gap-2 py-16">
+            <svg class="animate-spin h-5 w-5 text-[var(--green)]" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" d="M4 12a8 8 0 018-8" fill="currentColor"></path>
+            </svg>
+            Carregando…
           </div>
         </section>
-
-        <!-- TOAST -->
-        <div
-          id="toast"
-          class="fixed bottom-6 left-1/2 -translate-x-1/2 hidden px-4 py-3 rounded-xl text-white shadow-lg"
-        ></div>
       </main>
+
+      <!-- TOAST -->
+      <div id="toast" x-show="toast.visible" x-cloak
+           x-transition:enter="transition ease-out duration-300"
+           x-transition:enter-start="opacity-0 translate-y-2"
+           x-transition:enter-end="opacity-100 translate-y-0"
+           x-transition:leave="transition ease-in duration-300"
+           x-transition:leave-start="opacity-100 translate-y-0"
+           x-transition:leave-end="opacity-0 translate-y-2"
+           class="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-3 rounded-xl text-white shadow-lg text-sm font-semibold"
+           :class="toast.ok ? 'bg-[var(--green-dark)]' : 'bg-[var(--red)]'"
+           x-text="toast.message"></div>
     </div>
 
     <script>
-      // ===================== CONFIG/STATE =====================
-      const STORAGE_KEY = "petrachi_estoque_v1";
-      const STORAGE_CAT = "petrachi_catalogo_v1";
-      const STORAGE_FILTROS = "petrachi_filtros_v1";
+      function app(){
+        // ---------- Utils ----------
+        const stripAccents = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const normalizeText = s => stripAccents(String(s||"").toLowerCase()).replace(/[-_/]/g," ").replace(/\s+/g," ").trim();
+        const matchFuzzy = (needle, hay) => { const n=normalizeText(needle), h=normalizeText(hay); if(!n) return true; return h.includes(n); };
 
-      const state = {
-        tab: "ESTOQUE",
-        estoque: [],
-        catalogo: [],
-        filtros: { nome: "", ia: "", praga: "", somenteRegistroValido: true },
-      };
-
-      function fmtQtd(x) {
-        if (x == null || isNaN(x)) return "0";
-        // arredonda em JS para garantir que 6816.400000000001 vire 6816.4
-        const r = Math.round((Number(x) + Number.EPSILON) * 1000) / 1000;
-        // mostra até 3 casas, sem zeros sobrando
-        return r.toLocaleString("pt-BR", {
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 3,
-        });
-      }
-
-      const $ = (s) => document.querySelector(s);
-      const $$ = (s) => document.querySelectorAll(s);
-
-      function setOnlineBadge() {
-        const el = $("#badgeOnline");
-        if (!el) return;
-        const on = navigator.onLine;
-        el.textContent = on ? "Online" : "Offline";
-        el.className = `text-[11px] px-2.5 py-1 rounded-full border ${
-          on
-            ? "border-white/40 bg-white/10"
-            : "border-yellow-300 bg-yellow-100 text-yellow-900"
-        } backdrop-blur`;
-      }
-      window.addEventListener("online", setOnlineBadge);
-      window.addEventListener("offline", setOnlineBadge);
-
-      function toast(msg, ok = true) {
-        const el = $("#toast");
-        el.textContent = msg;
-        el.className = `fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-3 rounded-xl text-white shadow-lg ${
-          ok ? "bg-emerald-600" : "bg-red-600"
-        }`;
-        el.classList.remove("hidden");
-        setTimeout(() => el.classList.add("hidden"), 2200);
-      }
-
-      // ===================== FUZZY & PARSE (mesmo do seu código) =====================
-      function normalize(s) {
-        if (!s) return "";
-        return String(s)
-          .toLowerCase()
-          .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
-          .replace(/[-_/]/g, " ")
-          .replace(/[^a-z0-9% ]/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
-      }
-      function matchFuzzy(needle, hay) {
-        const n = normalize(needle),
-          h = normalize(hay);
-        if (!n) return true;
-        if (h.includes(n)) return true;
-        return h.replace(/\s+/g, "-").includes(n.replace(/\s+/g, "-"));
-      }
-
-      function parseCSV(text) {
-        const sep = text.includes(";") && !text.includes(",") ? ";" : ",";
-        const lines = text.split(/\r?\n/).filter(Boolean);
-        if (!lines.length) return [];
-        const header = lines[0].split(sep).map((s) => s.trim());
-        return lines.slice(1).map((ln) => {
-          const cols = ln.split(sep);
-          const obj = {};
-          header.forEach((h, i) => (obj[h] = (cols[i] ?? "").trim()));
-          return obj;
-        });
-      }
-      function parseXLSX(arrayBuffer) {
-        const wb = XLSX.read(arrayBuffer, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        return XLSX.utils.sheet_to_json(ws, { defval: "" });
-      }
-      function mapFields(row) {
-        const get = (keys, def = "") => {
-          for (const k of keys)
-            if (k in row && row[k] !== "") return String(row[k]).trim();
-          return def;
+        // ---------- Canon culturas ----------
+        const CULTURE_ALIASES = [
+          {rx:/^(batata[\s-]*inglesa|\bbatata\s*\(inglesa\))$/i, canon:"Batata"},
+          {rx:/^batata$/i, canon:"Batata"},
+          {rx:/^batata[\s-]*doce$/i, canon:"Batata-doce"},
+          {rx:/^milho[\s-]*safrinha$/i, canon:"Milho"},
+          {rx:/^feij[aã]o[-\s]*(carioca|preto|branco|comum)?$/i, canon:"Feijão"},
+          {rx:/^citros?$/i, canon:"Citros"},
+          {rx:/^laranja[-\s]*(doce|baia|pera|val[eê]ncia)?$/i, canon:"Laranja"},
+        ];
+        const canonCache = new Map();
+        const canonicalizeCulture = (raw)=>{
+          const txt=String(raw||"").trim(); if(canonCache.has(txt)) return canonCache.get(txt);
+          for(const r of CULTURE_ALIASES) if(r.rx.test(txt)){ const out={label:r.canon,key:normalizeText(r.canon)}; canonCache.set(txt,out); return out;}
+          const title=txt.toLowerCase().replace(/\b\w/g,m=>m.toUpperCase());
+          const out={label:title,key:normalizeText(title)}; canonCache.set(txt,out); return out;
         };
-        const num = (s) => {
-          const v = String(s ?? "").replace(",", ".");
-          const f = parseFloat(v);
-          return Number.isFinite(f) ? f : 0;
-        };
+
         return {
-          nome: get([
-            "nome_comercial",
-            "Nome Comercial",
-            "nome",
-            "Produto",
-            "produto",
-          ]),
-          qtd: num(get(["quantidade", "qtd", "estoque", "saldo"], "0")),
-          und: get(["unidade", "un", "und", "u.m."]),
-          ia: get(["ia", "ingrediente_ativo", "ingrediente ativo", "IAs"]),
-          pragas: get(["pragas", "praga", "alvos", "pragas_alvo"]),
-          registro: get([
-            "registro",
-            "numero_registro",
-            "n_registro",
-            "Nº Registro",
-          ]),
-          empresa: get(["empresa", "titular_registro", "registrante"]),
-          formulacao: get(["formulacao", "formulação", "form"]),
+          // STATE
+          darkMode: document.documentElement.classList.contains("dark"),
+          tab: "ESTOQUE",
+          estoque: [],
+          catalogo: [],
+          filtros: {
+            nome:"", ia:"", praga:"",
+            culturas:["Café","Batata","Milho","Soja","Sorgo","Trigo","Feijão","Arroz","Laranja","Citros"],
+            somenteRegistroValido:true
+          },
+          ui: { culturasOpen:false, busca:"", culShowLimit:60 },
+          toast: { visible:false, message:"", ok:true },
+          lastETag: null,
+
+          // INIT
+          init(){
+            this.setOnlineBadge();
+            addEventListener("online",()=>this.setOnlineBadge());
+            addEventListener("offline",()=>this.setOnlineBadge());
+
+            this.loadAll();
+            // garante culturas padrão se veio vazio do localStorage
+            if(!Array.isArray(this.filtros.culturas) || this.filtros.culturas.length===0){
+              this.filtros.culturas=["Café","Batata","Milho","Soja","Sorgo","Trigo","Feijão","Arroz","Laranja","Citros"];
+            }
+            this.updateFiltroInputs();
+            this.renderChipsCulturas();
+            this.setActiveTab(this.tab);
+            this.setCulturasOptionsFromFilters();
+
+            this.doSync();                 // primeira carga
+            setInterval(()=>this.tickEstoque(), 30000);
+
+            if("serviceWorker" in navigator) navigator.serviceWorker.register("/static/service-worker.js");
+          },
+
+          // THEME/ONLINE
+          toggleDarkMode(){ this.darkMode=!this.darkMode; localStorage.setItem("darkMode",this.darkMode); document.documentElement.classList.toggle("dark",this.darkMode); },
+          setOnlineBadge(){
+            const el=document.getElementById("badgeOnline"); if(!el) return;
+            const on=navigator.onLine;
+            el.textContent= on?"Online":"Offline";
+            el.className = `text-xs px-3 py-1 rounded-full font-medium ${on?"bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200":"bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"}`;
+          },
+          showToast(msg,ok=true){ this.toast={visible:true,message:msg,ok}; setTimeout(()=>this.toast.visible=false,2500); },
+
+          // STORAGE
+          saveAll(){ localStorage.setItem("petrachi_estoque_v1", JSON.stringify(this.estoque));
+                     localStorage.setItem("petrachi_catalogo_v1", JSON.stringify(this.catalogo));
+                     localStorage.setItem("petrachi_filtros_v1", JSON.stringify(this.filtros)); },
+          loadAll(){
+            try{ this.estoque = JSON.parse(localStorage.getItem("petrachi_estoque_v1")||"[]"); }catch{}
+            try{ this.catalogo = JSON.parse(localStorage.getItem("petrachi_catalogo_v1")||"[]"); }catch{}
+            try{ const f=JSON.parse(localStorage.getItem("petrachi_filtros_v1")||"null"); if(f) this.filtros=Object.assign(this.filtros,f);}catch{}
+          },
+
+          // INPUTS / filtros
+          updateFiltroInputs(){
+            document.getElementById("qNome").value=this.filtros.nome||"";
+            document.getElementById("qIA").value=this.filtros.ia||"";
+            document.getElementById("qPraga").value=this.filtros.praga||"";
+            document.getElementById("chkSomenteComRegistro").checked=!!this.filtros.somenteRegistroValido;
+          },
+          onFilterChange(){ this.renderLista(); this.saveAll(); this.setCulturasOptionsFromFilters(); },
+
+          // CULTURAS — popup UI
+          toggleCulturas(){ this.ui.culShowLimit=60; this.ui.culturasOpen=!this.ui.culturasOpen; if(this.ui.culturasOpen) setTimeout(()=>document.getElementById("buscaCulturas").focus(),0); },
+          toggleSelectAll(){
+            const base=this._currentCulturaBase();
+            const s=new Set(this.filtros.culturas||[]);
+            const all = base.every(c=>s.has(c));
+            if(all) base.forEach(c=>s.delete(c)); else base.forEach(c=>s.add(c));
+            this.filtros.culturas = Array.from(s);
+            document.getElementById("hintCulturas").textContent = `${this.filtros.culturas.length} selecionada(s)`;
+            this.renderChipsCulturas(); this.onFilterChange(); this.saveAll();
+            this.renderListaCulturas();
+          },
+          limparCulturas(){
+            this.filtros.culturas=[]; this.renderChipsCulturas(); this.onFilterChange(); this.saveAll();
+            this.renderListaCulturas(); document.getElementById("hintCulturas").textContent="Nenhuma selecionada";
+          },
+          renderChipsCulturas(){
+            const box=document.getElementById("chipsCulturas"); box.innerHTML="";
+            const sel=this.filtros.culturas||[];
+            if(!sel.length){ box.innerHTML=`<span class="text-gray-500 dark:text-gray-400">Nenhuma cultura selecionada</span>`; return; }
+            sel.slice(0,6).forEach(c=>{ const s=document.createElement("span");
+              s.className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800";
+              s.textContent=c; box.appendChild(s); });
+            if(sel.length>6){ const r=document.createElement("span");
+              r.className="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600";
+              r.textContent=`+${sel.length-6}`; box.appendChild(r); }
+          },
+
+          // CULTURAS — dados
+          derivarCulturasComContagem(){
+            const {nome,ia,praga,somenteRegistroValido}=this.filtros;
+            const counts={};
+            for(const it of this.estoque){
+              if(somenteRegistroValido && !String(it.registro||"").trim()) continue;
+              if(nome && !matchFuzzy(nome,it.nome||"")) continue;
+              if(ia){
+                const listIA=String(it.ia||"").split(/[,;|]/).map(s=>s.trim()).filter(Boolean);
+                if(!listIA.some(x=>matchFuzzy(ia,x))) continue;
+              }
+              const byCul=it.pragas_por_cultura||{};
+              for(const raw of Object.keys(byCul)){
+                if(!raw||!raw.trim()) continue;
+                const can=canonicalizeCulture(raw).label;
+                const plist=byCul[raw]||[];
+                if(!praga || plist.some(p=>matchFuzzy(praga,p))) counts[can]=(counts[can]||0)+1;
+              }
+            }
+            const lista=Object.keys(counts).sort((a,b)=>a.localeCompare(b,"pt-BR"));
+            return {lista,counts};
+          },
+          setCulturasOptionsFromFilters(){
+            const dc=this.derivarCulturasComContagem();
+            this._culturasAll=dc.lista; this._cultureCounts=dc.counts;
+
+            // limpa seleção inválida
+            const allowed=new Set(this._culturasAll);
+            const prev=this.filtros.culturas||[];
+            const cleaned=prev.filter(c=>allowed.has(c));
+            if(cleaned.length!==prev.length){ this.filtros.culturas=cleaned; this.renderChipsCulturas(); this.saveAll(); }
+
+            document.getElementById("hintCulturas").textContent = this.filtros.praga ? "Culturas relevantes para a praga atual" : "Selecione uma ou mais culturas";
+            this.renderListaCulturas(true);
+          },
+          _culturasAll:[],
+          _cultureCounts:{},
+          _currentCulturaBase(){ const q=normalizeText(this.ui.busca||""); const base=this._culturasAll.slice(); return q?base.filter(c=>normalizeText(c).includes(q)):base; },
+          renderListaCulturas(resetLimit=false){
+            const wrap=document.getElementById("listaCulturas"); if(!wrap) return;
+            if(resetLimit) this.ui.culShowLimit=60;
+            wrap.innerHTML="";
+            const sel=new Set(this.filtros.culturas||[]);
+            const base=this._currentCulturaBase();
+            const toShow=base.slice(0,this.ui.culShowLimit);
+            toShow.forEach(label=>{
+              const n=this._cultureCounts[label]||0;
+              const row=document.createElement("label");
+              row.className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer";
+              row.innerHTML = `<input type="checkbox" class="scale-110" ${sel.has(label)?"checked":""}/><span class="text-sm">${label} <span class="ml-1 text-[11px] text-gray-500 dark:text-gray-400">(${n})</span></span>`;
+              row.querySelector("input").addEventListener("change",(e)=>{
+                if(e.target.checked) sel.add(label); else sel.delete(label);
+                this.filtros.culturas=Array.from(sel);
+                document.getElementById("hintCulturas").textContent = `${this.filtros.culturas.length} selecionada(s)`;
+                // aplica imediatamente:
+                this.renderChipsCulturas(); this.onFilterChange(); this.saveAll();
+              });
+              wrap.appendChild(row);
+            });
+            if(base.length>this.ui.culShowLimit){
+              const btn=document.createElement("button");
+              btn.className="w-full mt-1 px-3 py-2 text-sm rounded-lg border bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border-gray-300 dark:border-gray-600";
+              btn.textContent="Carregar mais…";
+              btn.onclick=()=>{ this.ui.culShowLimit+=60; this.renderListaCulturas(false); };
+              wrap.appendChild(btn);
+            }
+          },
+
+          // LÓGICA de filtro
+          _produtoPassaNomeIARegistro(it){
+            const f=this.filtros;
+            if(f.somenteRegistroValido && !String(it.registro||"").trim()) return false;
+            if(f.nome && !matchFuzzy(f.nome,it.nome||"")) return false;
+            if(f.ia){
+              const listIA=String(it.ia||"").split(/[,;|]/).map(s=>s.trim()).filter(Boolean);
+              if(!listIA.some(x=>matchFuzzy(f.ia,x))) return false;
+            }
+            return true;
+          },
+          _pragasNasCulturas(it, culSel){
+            if(!culSel||!culSel.length) return (it.pragas_list||[]).map(String).filter(Boolean);
+            const byCul=it.pragas_por_cultura||{}; const acc=new Set();
+            const selected = new Set((culSel||[]).map(lbl=>canonicalizeCulture(lbl).key));
+            for(const raw of Object.keys(byCul)){
+              const ck=canonicalizeCulture(raw).key;
+              if(selected.has(ck)) (byCul[raw]||[]).forEach(p=>acc.add(p));
+            }
+            return Array.from(acc);
+          },
+          itemMatchesFilters(it){
+            if(!this._produtoPassaNomeIARegistro(it)) return false;
+            const cul=this.filtros.culturas;
+            if(cul && cul.length){
+              const prags=this._pragasNasCulturas(it, cul);
+              if(!prags.length) return false;
+              if(this.filtros.praga) return prags.some(p=>matchFuzzy(this.filtros.praga,p));
+              return true;
+            }
+            if(this.filtros.praga){
+              const prags=(it.pragas_list||[]);
+              return prags.some(p=>matchFuzzy(this.filtros.praga,p));
+            }
+            return true;
+          },
+          getEstoqueFiltrado(){ return this.estoque.filter(it=>this.itemMatchesFilters(it)); },
+          getForaDoEstoqueFiltrado(){
+            const nomesEst=new Set(this.estoque.map(x=>normalizeText(x.nome)));
+            return this.catalogo.filter(c=>!nomesEst.has(normalizeText(c.nome)) && this.itemMatchesFilters(c));
+          },
+
+          // Helpers: render detalhe completo de culturas do produto
+          formatAllCulturas(item){
+            const by = item.pragas_por_cultura || {};
+            const keys = Object.keys(by).filter(k=>k && String(k).trim()).sort((a,b)=>String(a).localeCompare(String(b),'pt-BR'));
+            if(!keys.length) return `<div class="text-xs text-gray-500 dark:text-gray-400">Sem mapeamento de culturas.</div>`;
+            const rows = keys.map(k=>{
+              const list = (by[k]||[]).slice();
+              const show = list.slice(0,6).join("; ");
+              const extra = list.length>6 ? ` (+${list.length-6})` : "";
+              return `<div class="py-1">
+                        <span class="chip bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200">${k}</span>
+                        <div class="mt-1 text-xs text-gray-600 dark:text-gray-300">${show}${extra}</div>
+                      </div>`;
+            }).join("");
+            return rows;
+          },
+
+          // RENDER lista
+          setActiveTab(newTab){
+            this.tab=newTab;
+            const e=document.getElementById("tabEstoque"), f=document.getElementById("tabFora");
+            e.textContent=`Em Estoque (${this.getEstoqueFiltrado().length})`;
+            f.textContent=`Fora de Estoque (${this.getForaDoEstoqueFiltrado().length})`;
+            e.className=`px-3 sm:px-4 py-2 rounded-md text-sm font-semibold ${newTab==="ESTOQUE"?"bg-white dark:bg-gray-700 text-[var(--green-dark)] dark:text-white shadow-sm":"bg-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"}`;
+            f.className=`px-3 sm:px-4 py-2 rounded-md text-sm font-semibold ${newTab==="FORA"?"bg-white dark:bg-gray-700 text-[var(--green-dark)] dark:text-white shadow-sm":"bg-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"}`;
+            this.renderLista();
+          },
+          fmtQtd(x){ if(x==null||isNaN(x)) return "0"; const r=Math.round((Number(x)+Number.EPSILON)*1000)/1000;
+            return r.toLocaleString("pt-BR",{minimumFractionDigits:0, maximumFractionDigits:3}); },
+          totaisPorUnidade(data){ return data.reduce((acc,it)=>{ const u=(it.und||"UN").toUpperCase(); acc[u]=(acc[u]||0)+(it.qtd||0); return acc; },{}); },
+          createCardElement(item){
+            const card=document.createElement("div");
+            card.className="card-enter bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-4 flex flex-col justify-between hover:shadow-md hover:border-[var(--green)] dark:hover:border-[var(--green)]";
+            const und=(item.und||"").toUpperCase();
+            const prVis=this._pragasNasCulturas(item, this.filtros.culturas);
+            const prFmt= prVis.length ? (prVis.length>5 ? `${prVis.slice(0,5).join("; ")} (+${prVis.length-5})` : prVis.join("; ")) : "—";
+
+            const detailsId = "det_" + Math.random().toString(36).slice(2);
+            card.innerHTML=`
+              <div>
+                <div class="flex justify-between items-start gap-3">
+                  <h3 class="font-bold text-base text-gray-800 dark:text-gray-100 pr-2">${item.nome||"—"}</h3>
+                  ${this.tab==="ESTOQUE" ? `
+                    <div class="text-right flex-shrink-0">
+                      <div class="text-2xl sm:text-3xl font-extrabold text-[var(--green-dark)] dark:text-[var(--green)] leading-none">${this.fmtQtd(item.qtd||0)}</div>
+                      <div class="text-sm font-semibold text-gray-500 dark:text-gray-400">${und}</div>
+                    </div>` : ""}
+                </div>
+
+                <div class="mt-2 flex flex-wrap gap-1.5 text-xs">
+                  ${item.ia ? `<span class="chip bg-emerald-50 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800">IA: ${item.ia}</span>` : ""}
+                  ${item.formulacao ? `<span class="chip bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600">${item.formulacao}</span>` : ""}
+                  ${item.registro ? `<span class="chip bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600">Reg: ${item.registro}</span>` : ""}
+                </div>
+
+                <div class="mt-2 text-xs text-gray-600 dark:text-gray-300"><span class="font-semibold">Pragas:</span> ${prFmt}</div>
+
+                <div class="mt-2">
+                  <button class="px-3 py-1 text-xs rounded-md border bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border-gray-300 dark:border-gray-600"
+                          data-toggle="${detailsId}">Ver culturas do registro</button>
+                </div>
+
+                <div id="${detailsId}" class="hidden mt-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-900/40">
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">Todas as culturas registradas (ignora o filtro atual):</div>
+                  <div class="space-y-1">${this.formatAllCulturas(item)}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                <div class="text-xs text-gray-500 dark:text-gray-400 truncate pr-2">${item.empresa || "Empresa não informada"}</div>
+                ${this.tab==="FORA" ? `<button class="px-3 py-1 text-xs rounded-md border bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 border-gray-300 dark:border-gray-600">Marcar p/ comprar</button>` : ""}
+              </div>`;
+
+            // handler do toggle
+            const btn = card.querySelector(`[data-toggle="${detailsId}"]`);
+            const box = card.querySelector(`#${detailsId}`);
+            btn.addEventListener("click", ()=>{
+              const open = !box.classList.contains("hidden");
+              if(open){ box.classList.add("hidden"); btn.textContent="Ver culturas do registro"; }
+              else { box.classList.remove("hidden"); btn.textContent="Esconder culturas"; }
+            });
+
+            return card;
+          },
+          renderLista(){
+            const grid=document.getElementById("lista"), vazio=document.getElementById("vazio"), resumo=document.getElementById("resumoContagem");
+            const data = (this.tab==="ESTOQUE") ? this.getEstoqueFiltrado() : this.getForaDoEstoqueFiltrado();
+            grid.innerHTML="";
+            if(!data.length){ vazio.classList.remove("hidden"); resumo.textContent="0 itens"; return; }
+            vazio.classList.add("hidden");
+            const totals=this.totaisPorUnidade(data);
+            resumo.innerHTML = `${data.length} item(ns) — ` + Object.entries(totals).map(([u,v])=>`<span class="inline-block mx-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px]">${this.fmtQtd(v)} ${u}</span>`).join("");
+            data.sort((a,b)=>(b.qtd||0)-(a.qtd||0));
+            data.forEach((it,idx)=>{ const card=this.createCardElement(it); grid.appendChild(card); setTimeout(()=>card.classList.add("card-enter-active"), idx*35); });
+          },
+
+          // SYNC (sem ?culturas=)
+          async doSync(){
+            document.getElementById("loading").classList.remove("hidden");
+            try{
+              const BASE_URL=location.origin;
+              const resEst=await fetch(`${BASE_URL}/api/estoque`, {cache:"no-store"});
+              if(!resEst.ok && resEst.status!==304) throw new Error(`Estoque HTTP ${resEst.status}`);
+              if(resEst.status!==304){
+                const data=await resEst.json();
+                this.estoque=(Array.isArray(data)?data:(data.rows||[])).map(this.mapFields).filter(x=>x.nome);
+              }
+              const resCat=await fetch(`${BASE_URL}/api/catalogo`,{cache:"no-store"});
+              if(resCat.ok){
+                const j2=await resCat.json();
+                this.catalogo=(Array.isArray(j2)?j2:(j2.rows||[])).map(this.mapFields).filter(x=>x.nome);
+              }
+              this.saveAll(); this.setActiveTab(this.tab); this.setCulturasOptionsFromFilters();
+              this.showToast(`Sincronizado: ${this.estoque.length} em estoque, ${this.catalogo.length} no catálogo`);
+            }catch(e){ console.error(e); this.showToast("Falha na sincronização",false); }
+            finally{ document.getElementById("loading").classList.add("hidden"); }
+          },
+          async tickEstoque(){
+            try{
+              const BASE_URL=location.origin;
+              const headers=this.lastETag?{"If-None-Match":`"${this.lastETag}"`}:{};
+              const res=await fetch(`${BASE_URL}/api/estoque`,{headers, cache:"no-store"});
+              if(res.status===304) return;
+              if(!res.ok) throw new Error("HTTP "+res.status);
+              const et=res.headers.get("ETag"); if(et) this.lastETag=et.replace(/"/g,"");
+              const data=await res.json();
+              this.estoque=(Array.isArray(data)?data:(data.rows||[])).map(this.mapFields).filter(x=>x.nome);
+              this.saveAll(); if(this.tab==="ESTOQUE") this.setActiveTab("ESTOQUE"); this.setCulturasOptionsFromFilters();
+            }catch(e){ console.warn("tickEstoque:",e); }
+          },
+
+          // FILES
+          async handleFileUpload(ev,type){
+            const file=ev.target.files?.[0]; if(!file) return;
+            document.getElementById("loading").classList.remove("hidden");
+            try{
+              let rows=[];
+              if(file.name.toLowerCase().endsWith(".xlsx")){ const buf=await file.arrayBuffer(); rows=this.parseXLSX(buf); }
+              else{ const txt=await file.text(); rows=file.name.toLowerCase().endsWith(".json")?JSON.parse(txt):this.parseCSV(txt); }
+              const mapped=rows.map(this.mapFields).filter(x=>x.nome);
+              if(type==="estoque"){ this.estoque=mapped; this.saveAll(); this.setActiveTab("ESTOQUE"); this.setCulturasOptionsFromFilters(); this.showToast(`Estoque importado: ${this.estoque.length} itens`); }
+              else{ this.catalogo=mapped; this.saveAll(); this.showToast(`Catálogo importado: ${this.catalogo.length} itens`); }
+            }catch(e){ console.error(e); this.showToast(`Falha ao ler ${type}`,false); }
+            finally{ document.getElementById("loading").classList.add("hidden"); ev.target.value=""; }
+          },
+
+          // PARSERS / mapping
+          parseCSV(text){ const sep=text.includes(";")?";":","; const lines=text.split(/\r?\n/).filter(Boolean);
+            if(!lines.length) return []; const header=lines[0].split(sep).map(s=>s.trim());
+            return lines.slice(1).map(ln=>{ const cols=ln.split(sep); return header.reduce((o,h,i)=>(o[h]=(cols[i]??"").trim(),o),{}); });
+          },
+          parseXLSX(buf){ const wb=XLSX.read(buf,{type:"array"}); const ws=wb.Sheets[wb.SheetNames[0]]; return XLSX.utils.sheet_to_json(ws,{defval:""}); },
+          mapFields(row){
+            const get=(keys,def="")=>{ for(const k of keys) if(row[k]!=null && row[k]!=="" ) return String(row[k]).trim(); return def; };
+            const num=s=>{ const f=parseFloat(String(s??"").replace(",", ".")); return Number.isFinite(f)?f:0; };
+            return {
+              nome:get(["nome_comercial","Nome Comercial","nome","Produto","produto"]),
+              qtd:num(get(["quantidade","qtd","estoque","saldo"],"0")),
+              und:get(["unidade","un","und","u.m."]),
+              ia:get(["ia","ingrediente_ativo","ingrediente ativo","IAs"]),
+              pragas:get(["pragas","praga","alvos","pragas_alvo"]),
+              registro:get(["registro","numero_registro","n_registro","Nº Registro"]),
+              empresa:get(["empresa","titular_registro","registrante"]),
+              formulacao:get(["formulacao","formulação","form"]),
+              pragas_list: row.pragas_list || [],
+              pragas_por_cultura: row.pragas_por_cultura || {},
+            };
+          },
+
+          // limpar
+          limparFiltros(){
+            this.filtros={ nome:"", ia:"", praga:"", culturas:["Café","Batata","Milho","Soja","Sorgo","Trigo","Feijão","Arroz","Laranja","Citros"], somenteRegistroValido:true };
+            this.updateFiltroInputs(); this.onFilterChange(); this.renderChipsCulturas(); this.setCulturasOptionsFromFilters();
+          },
         };
-      }
-
-      // ===================== STORAGE =====================
-      function saveAll() {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.estoque));
-        localStorage.setItem(STORAGE_CAT, JSON.stringify(state.catalogo));
-        localStorage.setItem(STORAGE_FILTROS, JSON.stringify(state.filtros));
-      }
-      function loadAll() {
-        try {
-          state.estoque = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-        } catch {}
-        try {
-          state.catalogo = JSON.parse(
-            localStorage.getItem(STORAGE_CAT) || "[]"
-          );
-        } catch {}
-        try {
-          state.filtros = JSON.parse(
-            localStorage.getItem(STORAGE_FILTROS) ||
-              JSON.stringify(state.filtros)
-          );
-        } catch {}
-      }
-
-      // ===================== FILTROS =====================
-      function itemMatchesFilters(item) {
-        const f = state.filtros;
-        if (f.nome && !matchFuzzy(f.nome, item.nome || "")) return false;
-        if (f.ia) {
-          const listIA = String(item.ia || "")
-            .split(/[,;|]/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-          if (!listIA.some((x) => matchFuzzy(f.ia, x))) return false;
-        }
-        if (f.praga) {
-          const listP = String(item.pragas || "")
-            .split(/[,;|]/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-          if (!listP.some((x) => matchFuzzy(f.praga, x))) return false;
-        }
-        if (f.somenteRegistroValido && !String(item.registro || "").trim())
-          return false;
-        return true;
-      }
-      function getEstoqueFiltrado() {
-        return state.estoque.filter(itemMatchesFilters);
-      }
-      function getForaDoEstoqueFiltrado() {
-        const nomesEstoque = new Set(
-          state.estoque.map((x) => normalize(x.nome))
-        );
-        const fora = state.catalogo.filter(
-          (c) => !nomesEstoque.has(normalize(c.nome))
-        );
-        return fora.filter(itemMatchesFilters);
-      }
-
-      // ===================== RENDER =====================
-      function renderLista() {
-        const grid = $("#lista"),
-          vazio = $("#vazio"),
-          resumo = $("#resumoContagem");
-        const data =
-          state.tab === "ESTOQUE"
-            ? getEstoqueFiltrado()
-            : getForaDoEstoqueFiltrado();
-        grid.innerHTML = "";
-        if (!data.length) {
-          vazio.classList.remove("hidden");
-          resumo.textContent = "0 itens";
-          return;
-        }
-        vazio.classList.add("hidden");
-        resumo.textContent = `${data.length} item(ns)`;
-        data.forEach((item) => {
-          const card = document.createElement("div");
-          card.className =
-            "rounded-2xl overflow-hidden border border-gray-200 bg-white";
-          card.innerHTML = `
-                  <div class="p-4 space-y-2">
-                    <div class="flex items-start justify-between gap-3">
-                      <div class="font-semibold leading-snug">${
-                        item.nome || "—"
-                      }</div>
-                      ${
-                        state.tab === "ESTOQUE"
-                          ? `<span class="text-[11px] px-2 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">
-     ${fmtQtd(item.qtd)} ${item.und || ""}
-   </span>`
-                          : ""
-                      }
-                    </div>
-                    <div class="text-xs text-gray-600 space-y-0.5">
-                      <div><span class="font-medium">IA:</span> ${
-                        item.ia || "—"
-                      }</div>
-                      <div><span class="font-medium">Pragas:</span> ${
-                        item.pragas || "—"
-                      }</div>
-                      <div><span class="font-medium">Registro:</span> ${
-                        item.registro || "—"
-                      }</div>
-                      <div><span class="font-medium">Empresa:</span> ${
-                        item.empresa || "—"
-                      }</div>
-                      ${
-                        item.formulacao
-                          ? `<div><span class="font-medium">Formulação:</span> ${item.formulacao}</div>`
-                          : ""
-                      }
-                    </div>
-                    ${
-                      state.tab === "FORA"
-                        ? `<div class="pt-1"><button class="px-3 py-1.5 text-xs rounded-lg border bg-gray-50">Marcar para comprar</button></div>`
-                        : ""
-                    }
-                  </div>`;
-          grid.appendChild(card);
-        });
-      }
-      function setActiveTab(tab) {
-        state.tab = tab;
-        $("#tabEstoque").className =
-          tab === "ESTOQUE"
-            ? "px-3 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white"
-            : "px-3 py-2 rounded-lg text-sm font-semibold bg-gray-100 border";
-        $("#tabFora").className =
-          tab === "FORA"
-            ? "px-3 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white"
-            : "px-3 py-2 rounded-lg text-sm font-semibold bg-gray-100 border";
-        renderLista();
-      }
-
-      // ===================== EVENTOS UI =====================
-      $("#tabEstoque").onclick = () => setActiveTab("ESTOQUE");
-      $("#tabFora").onclick = () => setActiveTab("FORA");
-
-      $("#qNome").addEventListener("input", (e) => {
-        state.filtros.nome = e.target.value.trim();
-        renderLista();
-      });
-      $("#btnLimparNome").onclick = () => {
-        $("#qNome").value = "";
-        state.filtros.nome = "";
-        renderLista();
-      };
-
-      $("#qIA").addEventListener("input", (e) => {
-        state.filtros.ia = e.target.value.trim();
-        renderLista();
-      });
-      $("#qPraga").addEventListener("input", (e) => {
-        state.filtros.praga = e.target.value.trim();
-        renderLista();
-      });
-
-      $("#btnLimparFiltros").onclick = () => {
-        ["#qNome", "#qIA", "#qPraga"].forEach((id) => ($(id).value = ""));
-        state.filtros = {
-          nome: "",
-          ia: "",
-          praga: "",
-          somenteRegistroValido: true,
-        };
-        $("#chkSomenteComRegistro").checked = true;
-        renderLista();
-        saveAll();
-      };
-      $("#chkSomenteComRegistro").onchange = (e) => {
-        state.filtros.somenteRegistroValido = !!e.target.checked;
-        renderLista();
-        saveAll();
-      };
-
-      // ===================== IMPORT LOCAL (opcional) =====================
-      $("#fileEstoque").addEventListener("change", async (ev) => {
-        const file = ev.target.files?.[0];
-        if (!file) return;
-        $("#loading").classList.remove("hidden");
-        try {
-          let rows = [];
-          if (file.name.toLowerCase().endsWith(".xlsx")) {
-            const buf = await file.arrayBuffer();
-            rows = parseXLSX(buf);
-          } else {
-            const txt = await file.text();
-            rows = parseCSV(txt);
-          }
-          state.estoque = rows.map(mapFields).filter((x) => x.nome);
-          saveAll();
-          setActiveTab("ESTOQUE");
-          toast(`Estoque importado: ${state.estoque.length} itens`);
-        } catch (e) {
-          console.error(e);
-          toast("Falha ao ler estoque", false);
-        } finally {
-          $("#loading").classList.add("hidden");
-        }
-      });
-
-      $("#fileCatalogo").addEventListener("change", async (ev) => {
-        const file = ev.target.files?.[0];
-        if (!file) return;
-        $("#loading").classList.remove("hidden");
-        try {
-          const txt = await file.text();
-          const rows = file.name.toLowerCase().endsWith(".json")
-            ? JSON.parse(txt)
-            : parseCSV(txt);
-          state.catalogo = rows
-            .map((r) => ({
-              nome:
-                r.nome_comercial ||
-                r.nome ||
-                r.Produto ||
-                r.produto ||
-                r["Nome Comercial"] ||
-                "",
-              ia:
-                r.ia ||
-                r.ingrediente_ativo ||
-                r["ingrediente ativo"] ||
-                r.IAs ||
-                "",
-              pragas: r.pragas || r.praga || r.alvos || r["pragas_alvo"] || "",
-              registro:
-                r.registro || r.numero_registro || r["n_registro"] || "",
-              empresa: r.empresa || r.titular_registro || r.registrante || "",
-              formulacao: r.formulacao || r["formulação"] || r.form || "",
-            }))
-            .filter((x) => x.nome);
-          saveAll();
-          if (state.tab === "FORA") renderLista();
-          toast(`Catálogo importado: ${state.catalogo.length} itens`);
-        } catch (e) {
-          console.error(e);
-          toast("Falha ao ler catálogo", false);
-        } finally {
-          $("#loading").classList.add("hidden");
-        }
-      });
-
-      $("#btnExportar").onclick = () => {
-        const blob = new Blob([JSON.stringify(state.filtros, null, 2)], {
-          type: "application/json",
-        });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "filtros_estoque.json";
-        a.click();
-        URL.revokeObjectURL(url);
-      };
-
-      // ===================== SYNC BACKEND =====================
-      const BASE_URL = "https://estoque-ji6s.onrender.com";
-      const END_Estoque = `${BASE_URL}/api/estoque`;
-      const END_Catalogo = `${BASE_URL}/api/catalogo`;
-      $("#btnSync").onclick = doSync;
-
-      async function doSync() {
-        $("#loading").classList.remove("hidden");
-        try {
-          const resEst = await fetch(END_Estoque, { cache: "no-store" });
-          if (!resEst.ok && resEst.status !== 304)
-            throw new Error(`Estoque HTTP ${resEst.status}`);
-          if (resEst.status !== 304) {
-            const data = await resEst.json();
-            state.estoque = (Array.isArray(data) ? data : data.rows || [])
-              .map(mapFields)
-              .filter((x) => x.nome);
-          }
-          const resCat = await fetch(END_Catalogo, { cache: "no-store" });
-          if (resCat.ok) {
-            const j2 = await resCat.json();
-            const rowsCat = Array.isArray(j2) ? j2 : j2.rows || [];
-            state.catalogo = rowsCat
-              .map((r) => ({
-                nome:
-                  r.nome_comercial ||
-                  r.nome ||
-                  r.Produto ||
-                  r.produto ||
-                  r["Nome Comercial"] ||
-                  "",
-                ia:
-                  r.ia ||
-                  r.ingrediente_ativo ||
-                  r["ingrediente ativo"] ||
-                  r.IAs ||
-                  "",
-                pragas:
-                  r.pragas || r.praga || r.alvos || r["pragas_alvo"] || "",
-                registro:
-                  r.registro || r.numero_registro || r["n_registro"] || "",
-                empresa: r.empresa || r.titular_registro || r.registrante || "",
-                formulacao: r.formulacao || r["formulação"] || r.form || "",
-              }))
-              .filter((x) => x.nome);
-          }
-          saveAll();
-          setActiveTab(state.tab);
-          toast(
-            `Sincronizado: ${state.estoque.length} em estoque, ${state.catalogo.length} no catálogo`
-          );
-        } catch (e) {
-          console.error(e);
-          toast("Falha na sincronização", false);
-        } finally {
-          $("#loading").classList.add("hidden");
-        }
-      }
-
-      // ===================== ETag Poll =====================
-      let lastETag = null;
-      async function tickEstoque() {
-        try {
-          const headers = lastETag ? { "If-None-Match": `"${lastETag}"` } : {};
-          const res = await fetch(END_Estoque, { headers, cache: "no-store" });
-          if (res.status === 304) return;
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          const et = res.headers.get("ETag");
-          if (et) lastETag = et.replace(/"/g, "");
-          const data = await res.json();
-          state.estoque = (Array.isArray(data) ? data : data.rows || [])
-            .map(mapFields)
-            .filter((x) => x.nome);
-          saveAll();
-          if (state.tab === "ESTOQUE") renderLista();
-        } catch (e) {
-          console.warn("tickEstoque:", e);
-        }
-      }
-
-      // ===================== BOOT =====================
-      window.addEventListener("DOMContentLoaded", () => {
-        setOnlineBadge();
-        loadAll();
-        $("#qNome").value = state.filtros.nome || "";
-        $("#qIA").value = state.filtros.ia || "";
-        $("#qPraga").value = state.filtros.praga || "";
-        $("#chkSomenteComRegistro").checked =
-          !!state.filtros.somenteRegistroValido;
-        setActiveTab("ESTOQUE");
-        tickEstoque();
-        setInterval(tickEstoque, 30000);
-      });
-
-      // PWA (via /static)
-      if ("serviceWorker" in navigator) {
-        navigator.serviceWorker.register("/static/service-worker.js");
       }
     </script>
   </body>
