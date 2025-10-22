@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 from collections import Counter, defaultdict
 from decimal import Decimal, ROUND_HALF_UP
+from fastapi import Request
+from fastapi.responses import Response
+
+
 
 import pandas as pd
 import httpx
@@ -910,3 +914,266 @@ async def api_enriquecimento_debug():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+import pandas as pd
+from pathlib import Path
+
+# ==================== ALERTAS ====================
+from pathlib import Path
+import pandas as pd
+import os, time
+from fastapi import HTTPException
+from twilio.rest import Client
+
+ALERTS_SHEET = Path("Estoque_Minimo.xlsx")
+
+# ==================== Atualiza planilha ====================
+async def atualizar_planilha_alertas():
+    # 1️⃣ Puxa os produtos ativos do estoque
+    _, estoque = await get_cached_estoque()
+    produtos_ativos = [p for p in estoque if float(p.get("qtd", 0)) > 0]
+
+    # 2️⃣ Converte em DataFrame
+    df_novo = pd.DataFrame([
+        {
+            "nome": p["nome"],
+            "unidade": p.get("und"),
+            "estoque_minimo": None,
+            "prioridade": None,
+            "ativo": True
+        }
+        for p in produtos_ativos
+    ])
+
+    # 3️⃣ Se planilha já existir, mescla
+    if ALERTS_SHEET.exists():
+        df_antigo = pd.read_excel(ALERTS_SHEET)
+        df_antigo["nome_norm"] = (
+            df_antigo["nome"].astype(str)
+            .str.lower()
+            .str.normalize('NFKD')
+            .str.encode('ascii', errors='ignore')
+            .str.decode('utf-8')
+        )
+        df_novo["nome_norm"] = (
+            df_novo["nome"].astype(str)
+            .str.lower()
+            .str.normalize('NFKD')
+            .str.encode('ascii', errors='ignore')
+            .str.decode('utf-8')
+        )
+
+        df_final = pd.merge(df_novo, df_antigo, on="nome_norm", how="left", suffixes=("_novo", ""))
+        df_final["estoque_minimo"] = df_final["estoque_minimo"].combine_first(df_final["estoque_minimo_novo"])
+        df_final["prioridade"] = df_final["prioridade"].combine_first(df_final["prioridade_novo"])
+        df_final["ativo"] = True
+        df_final = df_final[["nome_novo", "unidade_novo", "estoque_minimo", "prioridade", "ativo"]]
+        df_final.rename(columns={"nome_novo": "nome", "unidade_novo": "unidade"}, inplace=True)
+    else:
+        df_final = df_novo
+
+    # 4️⃣ Salva
+    df_final.to_excel(ALERTS_SHEET, index=False)
+    print(f"✅ Planilha de alertas atualizada com {len(df_final)} produtos.")
+
+# ==================== Verifica alertas ====================
+async def verificar_alertas():
+    # Puxa estoque atual
+    _, estoque = await get_cached_estoque()
+    df_estoque = pd.DataFrame(estoque)
+    df_estoque["nome_norm"] = (
+        df_estoque["nome"]
+        .astype(str)
+        .str.lower()
+        .str.normalize("NFKD")
+        .str.encode("ascii", errors="ignore")
+        .str.decode("utf-8")
+    )
+
+    # Lê planilha de alertas (com tolerância a erro)
+    if not ALERTS_SHEET.exists():
+        return []
+
+    for _ in range(3):  # tenta até 3 vezes (em caso de arquivo aberto)
+        try:
+            df_alertas = pd.read_excel(ALERTS_SHEET)
+            break
+        except PermissionError:
+            print("⚠️ Planilha de alertas está aberta, tentando novamente em 2s...")
+            time.sleep(2)
+    else:
+        raise HTTPException(status_code=500, detail="Feche o arquivo Estoque_Minimo.xlsx e tente novamente.")
+
+    if "estoque_minimo" not in df_alertas.columns:
+        return []
+
+    df_alertas["nome_norm"] = (
+        df_alertas["nome"]
+        .astype(str)
+        .str.lower()
+        .str.normalize("NFKD")
+        .str.encode("ascii", errors="ignore")
+        .str.decode("utf-8")
+    )
+
+    # Junta e compara
+    df = pd.merge(df_estoque, df_alertas, on="nome_norm", how="inner", suffixes=("_est", "_alerta"))
+    df["qtd_est"] = df["qtd"].astype(float)
+    df["alerta"] = df["qtd_est"] < df["estoque_minimo"]
+
+    alertas = df[df["alerta"]].copy()
+    return alertas[["nome_est", "qtd_est", "estoque_minimo"]].rename(columns={"nome_est": "nome"})
+
+# ==================== Envio WhatsApp ====================
+def enviar_whatsapp_alertas(alertas):
+    if not len(alertas):
+        print("Nenhum alerta para enviar.")
+        return "Nenhum alerta."
+
+    TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
+    TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+    TWILIO_FROM = os.getenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
+    TWILIO_TO = os.getenv("TWILIO_WHATSAPP_TO")
+
+    if not (TWILIO_SID and TWILIO_TOKEN and TWILIO_TO):
+        raise HTTPException(status_code=500, detail="Configurações Twilio ausentes no .env")
+
+    # Monta mensagem
+    body = "🚨 *ALERTA DE ESTOQUE BAIXO*\n\n"
+    for a in alertas:
+        body += f"• {a['nome']} — {a['qtd_est']} (mínimo {a['estoque_minimo']})\n"
+
+    client = Client(TWILIO_SID, TWILIO_TOKEN)
+    message = client.messages.create(
+        from_=TWILIO_FROM,
+        to=TWILIO_TO,
+        body=body
+    )
+
+    print("✅ Mensagem enviada via WhatsApp:", message.sid)
+    return f"Enviado {len(alertas)} alertas via WhatsApp!"
+
+# ==================== Endpoints ====================
+@app.get("/api/alertas")
+async def api_alertas():
+    try:
+        alertas = await verificar_alertas()
+        if hasattr(alertas, "to_dict"):
+            alertas = alertas.to_dict(orient="records")
+        return {"count": len(alertas), "alertas": alertas}
+    except Exception as e:
+        print("⚠️ ERRO AO GERAR ALERTAS:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/alertas/enviar")
+async def api_enviar_alertas():
+    alertas = await verificar_alertas()
+    alertas_list = alertas.to_dict(orient="records") if hasattr(alertas, "to_dict") else alertas
+    if not len(alertas_list):
+        return {"ok": True, "msg": "Sem alertas no momento."}
+
+    msg = enviar_whatsapp_alertas(alertas_list)
+    return {"ok": True, "msg": msg}
+
+import pandas as pd
+
+def processar_mensagem(mensagem):
+    df = pd.read_excel("Estoque.xlsx")
+    produto = df[df["nome"].str.lower().str.contains(mensagem)]
+
+    if produto.empty:
+        return f"❌ Produto '{mensagem}' não encontrado no estoque."
+    else:
+        nome = produto.iloc[0]["nome"]
+        qtd = produto.iloc[0]["qtd"]
+        return f"📦 {nome} — {qtd:.2f} unidades disponíveis."
+
+
+from fastapi import Request
+from fastapi.responses import Response
+import pandas as pd
+import xml.etree.ElementTree as ET
+
+@app.post("/whatsapp")
+async def whatsapp_webhook(request: Request):
+    """
+    Responde via WhatsApp com o ESTOQUE REAL usando o dataset agregado de get_cached_estoque().
+    Evita reprocessar a planilha de movimentos e não soma produtos parecidos por engano.
+    """
+    import xml.etree.ElementTree as ET
+    import difflib
+
+    try:
+        form = await request.form()
+        msg_raw = (form.get("Body") or "").strip()
+        q = msg_raw.lower()
+        print(f"📩 Mensagem recebida: {msg_raw}")
+
+        # usa o agregado (mesmo que alimenta o front)
+        _, estoque = await get_cached_estoque()
+        if not estoque:
+            reply = "⚠️ Não consegui ler o estoque agora."
+        else:
+            # normaliza para busca
+            def nn(s: str) -> str:
+                return _normalize_name(s or "")
+
+            def ns(s: str) -> str:
+                return _simplify_product_name(s or "")
+
+            q_norm = nn(q)
+            q_simp = ns(q)
+
+            # candidatos por contains no normalizado
+            cands = []
+            for item in estoque:
+                nome = item.get("nome", "")
+                nome_norm = nn(nome)
+                nome_simp = ns(nome)
+                if q_norm and q_norm in nome_norm:
+                    cands.append((nome, item, 1.0))
+                elif q_simp and q_simp in nome_simp:
+                    cands.append((nome, item, 0.9))
+
+            # se nada por contains, tenta fuzzy (difflib) no nome normalizado
+            if not cands:
+                nomes_norm = [nn(x.get("nome", "")) for x in estoque]
+                best = difflib.get_close_matches(q_norm, nomes_norm, n=1, cutoff=0.7)
+                if best:
+                    alvo = best[0]
+                    for it in estoque:
+                        if nn(it.get("nome", "")) == alvo:
+                            cands = [(it.get("nome", ""), it, 0.8)]
+                            break
+
+            if not cands:
+                reply = f"❌ Produto '{msg_raw}' não encontrado."
+            else:
+                # escolhe o melhor candidato (maior score; se empatar, maior similaridade)
+                def score(tup):
+                    nome, item, base = tup
+                    sim = difflib.SequenceMatcher(None, nn(nome), q_norm).ratio()
+                    return (base, sim)
+                nome_sel, item_sel, _ = max(cands, key=score)
+
+                saldo = float(item_sel.get("qtd") or 0.0)
+                und = (item_sel.get("und") or "").strip()
+
+                # formatação elegante
+                saldo_fmt = f"{saldo:.3f}".rstrip("0").rstrip(".")
+                und_fmt = f" {und}" if und else ""
+                reply = f"📦 *{nome_sel}*\nQuantidade atual (saldo): {saldo_fmt}{und_fmt}"
+
+        print("💬 Resposta:", reply)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        reply = f"❌ Erro ao processar mensagem: {e}"
+
+    # TwiML
+    twiml = ET.Element("Response")
+    msg = ET.SubElement(twiml, "Message")
+    msg.text = reply
+    xml_str = ET.tostring(twiml, encoding="unicode")
+    return Response(content=xml_str, media_type="application/xml")
+
